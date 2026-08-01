@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from .. import guests
-from ..errors import ApiError
+from ..core.errors import ApiError
 from ..guests import Guest
 
 

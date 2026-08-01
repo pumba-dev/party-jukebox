@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 
-from . import clock, db
+from .core import clock, db
 
 COOKIE = "bq_guest"
 COOKIE_MAX_AGE = 86_400

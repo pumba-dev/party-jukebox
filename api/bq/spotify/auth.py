@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import clock, log
+from ..core import clock, log
 
 _L = log.get("spotify.auth")
 

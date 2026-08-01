@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import asyncio
 
-from . import clock, db, guards, log, queue, tracks, ws
+from . import guards, queue, tracks, ws
+from .core import clock, db, log
 from .party import S, party
 from .play import Play, PlayState
 from .queue import QueuedItem

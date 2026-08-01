@@ -22,7 +22,8 @@ os.environ["LAN_IP"] = "192.168.0.10"  # não depende de adaptador de rede no te
 # o log do teste não vai para api\party.log, senão o histórico da festa nasce sujo
 os.environ["LOG_PATH"] = str(Path(tempfile.gettempdir()) / "bq-test.log")
 
-from bq import db, guests, runtime, tracks  # noqa: E402
+from bq import guests, runtime, tracks  # noqa: E402
+from bq.core import db  # noqa: E402
 from bq.party import S, party  # noqa: E402
 from bq.spotify.client import TrackData  # noqa: E402
 
@@ -41,12 +42,17 @@ class FakeClock:
 
 @pytest.fixture
 def clk(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
-    """🔴 Patch no MÓDULO `bq.clock`, e é por isso que nenhum módulo pode fazer
+    """🔴 Patch no MÓDULO `bq.core.clock`, e é por isso que nenhum módulo pode fazer
     `from .clock import mono_ms`: com o nome importado direto, o patch não alcança o chamador
-    e o teste passa medindo o relógio de verdade (10 §2.1 / RNF-07)."""
+    e o teste passa medindo o relógio de verdade (10 §2.1 / RNF-07).
+
+    Estas duas strings são caminho-em-string: mover `clock.py` sem atualizá-las falha alto
+    (`AttributeError`), mas deixar um shim de re-export para trás falha em SILÊNCIO. Ver
+    `tests/arquitetura/test_relogio.py`, que existe para esse caso.
+    """
     c = FakeClock()
-    monkeypatch.setattr("bq.clock.mono_ms", lambda: c.mono)
-    monkeypatch.setattr("bq.clock.wall_ms", lambda: c.wall)
+    monkeypatch.setattr("bq.core.clock.mono_ms", lambda: c.mono)
+    monkeypatch.setattr("bq.core.clock.wall_ms", lambda: c.wall)
     return c
 
 

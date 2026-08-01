@@ -13,7 +13,7 @@ host, e a decisão mora AQUI e não no template.
 
 from __future__ import annotations
 
-from . import db
+from .core import db
 from .models import HistoryItem, HistoryOut, HistorySummary, Track
 
 _SELECT = """

@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from bq import db
-from bq.config import settings
+from bq.core import db
+from bq.core.config import settings
 
 from .test_api import client, seed_track  # noqa: F401  (fixture reusada)
 

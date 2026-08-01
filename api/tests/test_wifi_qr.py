@@ -13,8 +13,8 @@ import re
 
 import pytest
 
-from bq import net
-from bq.config import settings
+from bq.core import net
+from bq.core.config import settings
 
 
 @pytest.fixture

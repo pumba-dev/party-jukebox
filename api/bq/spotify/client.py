@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from .. import clock, log
+from ..core import clock, log
 from .auth import Auth, AuthError
 
 _L = log.get("spotify")

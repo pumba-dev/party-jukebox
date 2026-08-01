@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import db
+from .core import db
 from .spotify.client import SpotifyClient, TrackData
 
 

@@ -30,7 +30,7 @@ namespaces = false  # exige __init__.py; senão __pycache__ entra como namespace
 
 [tool.setuptools.package-data]
 # `*.sql` e não a lista nominal: `seeds.sql` não estava declarado e `db.py` o lê em TODO connect()
-bq = ["*.sql"]
+"bq.core" = ["*.sql"]
 
 # RNF-24: mypy limpo nos módulos com aritmética de tempo e ordenação.
 [tool.mypy]
@@ -45,7 +45,7 @@ warn_unused_configs = true
 [[tool.mypy.overrides]]
 # `bq.play` entra aqui porque `heard_ms`, `remaining_ms` e `dispatch_next_at_mono` SÃO a
 # aritmética de tempo que o RNF-24 protege — elas só mudaram de arquivo.
-module = ["bq.clock", "bq.play", "bq.queue", "bq.votes", "bq.conductor"]
+module = ["bq.core.clock", "bq.play", "bq.queue", "bq.votes", "bq.conductor"]
 strict = true
 
 [tool.pytest.ini_options]

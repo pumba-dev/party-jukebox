@@ -24,7 +24,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from bq.config import settings  # noqa: E402
+from bq.core.config import settings  # noqa: E402
 from bq.spotify.auth import AUTHORIZE_URL, SCOPES, Auth, exchange_code  # noqa: E402
 from bq.spotify.client import SpotifyClient  # noqa: E402
 

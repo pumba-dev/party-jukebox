@@ -34,16 +34,10 @@ TOPO = 99
 # reorganização e termina vazio — é o registro revisável da migração. Um módulo aqui é ignorado
 # pelo verificador, então enquanto ele não estiver vazio a cobertura é parcial, de propósito.
 PENDENTE = {
-    "bq.clock",
-    "bq.config",
     "bq.conductor",
-    "bq.db",
-    "bq.errors",
     "bq.guards",
     "bq.guests",
     "bq.history",
-    "bq.log",
-    "bq.net",
     "bq.party",
     "bq.play",
     "bq.queue",

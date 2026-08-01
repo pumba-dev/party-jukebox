@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-from .. import clock
+from ..core import clock
 from .client import SpotifyClient, TrackData
 
 LIMIT = 10

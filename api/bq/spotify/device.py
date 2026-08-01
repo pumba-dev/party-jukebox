@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .. import clock, log
+from ..core import clock, log
 from .client import SpotifyClient, SpotifyError
 
 _L = log.get("spotify.device")

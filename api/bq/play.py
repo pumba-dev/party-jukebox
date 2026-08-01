@@ -14,7 +14,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field
 
-from . import clock
+from .core import clock
 from .tracks import TrackRow
 
 # 🔴 O único número deste projeto que merece um cronômetro (tarefa M0.13).

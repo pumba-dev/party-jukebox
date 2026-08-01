@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import uvicorn
 
-from .config import settings
-from .net import join_url
+from .core.config import settings
+from .core.net import join_url
 
 
 def main() -> None:

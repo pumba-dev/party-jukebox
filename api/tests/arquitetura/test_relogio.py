@@ -13,13 +13,14 @@ import importlib
 
 import pytest
 
-from bq import clock, conductor, guards, play, tracks
+from bq import conductor, guards, play, tracks
+from bq.core import clock
 from bq.play import Play
 
 from ..conftest import FakeClock, make_track
 from .varredura import expostos, modulos, nos
 
-RELOGIO = "bq.clock"  # o dono dos nomes; muda de caminho junto com o módulo
+RELOGIO = "bq.core.clock"  # o dono dos nomes; muda de caminho junto com o módulo
 NOMES = {"mono_ms", "wall_ms"}
 
 

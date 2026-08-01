@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from bq import config, db
-from bq.config import settings
+from bq.core import config, db
+from bq.core.config import settings
 
 from .varredura import API_DIR, PACOTE, modulos
 

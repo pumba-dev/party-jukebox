@@ -12,7 +12,8 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 
-from bq import db, guests, history, queue, runtime
+from bq import guests, history, queue, runtime
+from bq.core import db
 from bq.conductor import MAX_EXTERNAL_STRIKES, Conductor
 from bq.play import PlayState
 from bq.party import party

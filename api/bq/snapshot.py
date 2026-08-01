@@ -15,8 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from . import clock, db, guards, guests, net, queue, runtime
-from .config import settings
+from . import guards, guests, queue, runtime
+from .core import clock, db, net
+from .core.config import settings
 from .guests import Guest
 from .models import (
     Me,

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bq import db
-from bq.config import settings
+from bq.core import db
+from bq.core.config import settings
 
 
 @pytest.fixture

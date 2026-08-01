@@ -5,9 +5,10 @@ Especificação normativa: .docs/05-api-http.md §4.
 
 from __future__ import annotations
 
-from . import clock, db, guards, runtime, ws
+from . import guards, runtime, ws
+from .core import clock, db
+from .core.errors import ApiError
 from .play import Play, PlayState
-from .errors import ApiError
 from .guests import Guest
 from .models import VoteOut
 from .party import S
