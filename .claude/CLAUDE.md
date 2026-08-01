@@ -29,11 +29,18 @@ mapa das camadas, as sete regras e as duas convenções, em 50 linhas.
 | `cd api; .\.venv\Scripts\python.exe -m mypy` | 37 arquivos, hoje limpo. `strict` em 5 módulos. |
 | `cd web; npm run build` | `npm run types && vue-tsc --noEmit && vite build`. **É o typecheck do front.** |
 | `cd web; npm run dev` | Vite :5173 com proxy de `/api`, `/health`, `/ws` para `http://127.0.0.1`. |
+| `cd web; npm test` | 19 testes Playwright da suíte **isolada**, ~10 s. Sem API, sem banco, sem venv. |
+| `cd web; npm run test:festa` | 4 testes full-stack contra o servidor de mesa. Exige a venv e `npm run build`. |
 | `cd api; .\.venv\Scripts\python.exe scripts\dump_openapi.py` | Regera `api/openapi.json` offline. |
 | `cd api; .\.venv\Scripts\python.exe scripts\authorize.py` | OAuth do Spotify (setup, uma vez). |
 
 **Não existe linter neste projeto** — nem ruff, nem eslint, nem flake8. Não invente um passo de
-lint. Os gates são três: `pytest`, `mypy` e `npm run build`.
+lint. Os gates de commit são três: `pytest`, `mypy` e `npm run build`.
+
+`npm test` é o quarto, e é deliberadamente **fora** do `npm run build`: o build é o typecheck e
+precisa continuar em segundos, sem browser. Rode-o ao mexer em qualquer coisa que uma tela
+_conclui_ a partir do snapshot — o botão de pular, os textos de fila vazia, o `stalled`.
+`npm run test:festa` é opcional e sobe um servidor de verdade (veja `.docs/10 §2.3`).
 
 ## Arquitetura
 
@@ -115,6 +122,18 @@ na festa.
   para com tudo verde. Atualize o duplo na mesma edição.
 - **Sem migrações.** `core/schema.sql` diz "mudou o schema, apaga party.db". `api/party.db` tem o
   histórico real de festas passadas e é gitignored — não há cópia. Avise antes.
+- **`scripts/servidor_de_mesa.py` nunca pode apontar para `api/party.db`.** Ele fixa `DB_PATH` num
+  diretório temporário **antes** de importar `bq` (o `config.py` valida no import) e aborta se o
+  caminho resolver para dentro de `api/`. Não relaxe essa checagem: um `DB_PATH` herdado do `.env`
+  faria a suíte de festa escrever no histórico real, e a suíte apaga a fila entre os testes.
+- **A substituição do Spotify no servidor de mesa é por NOME DE MÓDULO, e a ordem é tudo.**
+  `bq/app.py` faz `from .spotify.client import SpotifyClient`, o que liga o nome no import dele.
+  Trocar `bq.spotify.client.SpotifyClient` depois de `from bq.app import app` não alcança o
+  `Conductor` nem o `DeviceResolver`, e o servidor de teste tenta falar com o Spotify de verdade.
+  Pelo mesmo motivo o `uvicorn.run` recebe o **objeto** `app`, nunca a string `"bq.app:app"`.
+- **Duplo do Spotify agora são DOIS**: `tests/apoio/spotify.py` (pytest, com ganchos de sabotagem e
+  `FakeClock`) e `scripts/spotify_de_mesa.py` (servidor vivo, relógio real, com catálogo). Método
+  novo no `SpotifyClient` precisa entrar nos dois. O subagent `contract-drift` faz essa conferência.
 - **`ApiError` não aceita `status`** — a assinatura é `(code, message, **data)` e
   `self.status = STATUS[code]` sobrescreve. Os dois handlers em
   [app.py:122-129](../api/bq/app.py#L122-L129) passam `status=…` achando que propagam o status de
@@ -127,9 +146,28 @@ na festa.
 ## Segredos
 
 Nunca leia, logue nem versione: `api/.env`, `api/.tokens.json` (refresh token vivo, texto claro),
-`api/party.db*`, `api/party.log`. Use `api/.env.example` como referência. Os cookies `bq_guest` e
+`api/party.db*`, `api/party.log`. Use `api/.env.example` como referência.
+
+Isso deixou de ser só convenção: `.claude/settings.json` tem `permissions.deny` com `Read(…)` e
+`Edit(…)` para os quatro, e o deny de `Read` também bloqueia `cat`/`head`/`tail`/`sed` no Bash. Ele
+**não** alcança subprocessos — o pydantic lendo o `.env` e o `openapi-typescript` reescrevendo o
+`api.d.ts` seguem funcionando, que é o comportamento desejado. Os cookies `bq_guest` e
 `bq_host` são setados **sem** a flag `Secure` de propósito (a festa roda em `http://` na LAN) — há
 teste que falha se alguém adicionar.
+
+## Automações desta pasta
+
+- `settings.json` → `permissions.deny` (segredos e `web/src/types/api.d.ts`, que é gerado),
+  `permissions.allow` (os três gates, para não pedir prompt toda sessão) e um hook.
+- `hooks/aviso-openapi.ps1` — `PostToolUse` em `Edit|Write`. Se o caminho casar `bq/models.py`,
+  lembra de rodar `dump_openapi.py` + `npm run build` e commitar o `openapi.json` junto. Existe
+  porque o gatilho de rebuild do `start.ps1` ignora `api/` e a falha é silenciosa.
+  🔴 O arquivo tem **BOM UTF-8**: o Windows PowerShell 5.1 lê `.ps1` sem BOM como ANSI e os
+  acentos da mensagem chegam corrompidos ao terminal.
+- `agents/contract-drift.md` — audita as quatro cópias manuais do mesmo contrato que nenhum gate
+  cobre: `errors.py::STATUS` ↔ `ErrorCode`, `SpotifyClient` ↔ os dois duplos, os envelopes
+  `hello`/`notice` de `view/ws.py` ↔ `ServerMsg`, e o `BlockedReason` repetido em quatro lugares.
+- `.mcp.json` na raiz — servidor MCP do Playwright, escopo de projeto.
 
 ## Convenções
 

@@ -20,6 +20,12 @@ web/node_modules/
 web/dist/
 web/src/types/api.d.ts
 
+# playwright — relatórios, traces e os browsers baixados
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/playwright/.cache/
+
 # editor / os
 .vscode/
 .idea/

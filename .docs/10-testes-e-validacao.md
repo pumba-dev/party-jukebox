@@ -15,11 +15,17 @@ Não é "cobertura". É: **onde um erro é silencioso, ou onde reproduzir à mã
 | **Não** testar | Por quê |
 |---|---|
 | Rotas CRUD triviais | pydantic valida, e o erro é imediato e óbvio |
-| Componentes Vue | 3 telas, verificadas a olho a cada build |
+| Estética das telas | cor, espaçamento e capa são julgamento humano, e mudam de propósito |
 | O Spotify de verdade | é dependência externa; testamos **nosso** comportamento contra ela |
 | Carga / performance | 30 clientes numa LAN. Não há o que medir |
 
-Ferramenta: `pytest` + `pytest-asyncio`. Sem `httpx` real, sem banco em arquivo, sem fixture de rede.
+A linha "componentes Vue: verificados a olho a cada build" saiu desta tabela quando o Playwright
+entrou. Ela não estava errada sobre estética; estava errada sobre **estado**. Três itens do
+checklist manual (V13, V14 e V16) não são aparência — são a tela derivando uma conclusão de um
+snapshot, e isso é justamente "erro silencioso" pelo critério do topo desta seção. Ver §2.3.
+
+Ferramenta: `pytest` + `pytest-asyncio`. Sem `httpx` real, sem banco em arquivo, sem fixture de
+rede. No frontend, `@playwright/test` — em duas suítes, descritas em §2.3.
 
 ## 2. As duas peças que tornam tudo testável
 
@@ -97,6 +103,44 @@ Um duplo sem latência dá teste verde e bug em produção.
 
 Com essas duas peças, **uma festa de 20 faixas roda em menos de 5 segundos**, sem rede e sem caixa de
 som ligada.
+
+### 2.3 As duas suítes do frontend
+
+`@playwright/test`, em `web/testes/`. São duas porque os pré-requisitos são diferentes, e por isso
+são dois arquivos de configuração — um `webServer` num arquivo só faria `npm test` falhar num clone
+que ainda não montou a venv do Python.
+
+| | `npm test` · isolada | `npm run test:festa` · festa |
+|---|---|---|
+| Onde | `web/testes/isolado/` | `web/testes/festa/` |
+| Contra | `vite dev` na :5173 | uvicorn de verdade na :8099, servindo `web/dist` |
+| Rede | **toda** interceptada (`page.route`, `page.routeWebSocket`) | real |
+| Banco | nenhum | SQLite em diretório temporário |
+| Spotify | não existe | `api/scripts/spotify_de_mesa.py` |
+| Precisa de | só `node_modules` | venv + `npm run build` antes |
+
+**A isolada é onde mora o valor.** Ela empurra um `StateSnapshot` fabricado e olha o que a tela
+conclui. Com `page.clock` congelado, V13 vira uma asserção de três linhas: o botão de pular está
+desabilitado, o relógio anda 9 s, o botão habilita **sem chegar snapshot novo** — que é a
+propriedade que [06 §3](06-realtime-websocket.md) promete e que nenhum teste de mesa alcança,
+porque ela é da tela e não do servidor. V14 e V16 seguem o mesmo molde.
+
+As fábricas de `web/testes/apoio/snapshot.ts` são tipadas contra `web/src/types/ws.ts`, e
+`web/tsconfig.json` inclui `testes/`. O efeito é o do [ADR-006](adr/ADR-006-contrato-tipado.md)
+estendido: renomear um campo do protocolo do WebSocket passa a quebrar `npm run build`. Vale
+inclusive para os envelopes `hello` e `notice`, que `bq/view/ws.py` monta como dicionário literal e
+que portanto **não** passam pelo OpenAPI nem pelo type-assert de `contract.ts`.
+
+**A de festa existe por um motivo só:** V6 pede cinco cookies `bq_guest` distintos, e o
+`TestClient` do pytest fala ASGI — nenhum browser o alcança. Cada convidado é um *browser context*.
+O servidor de mesa substitui `bq.spotify.client.SpotifyClient` **antes** de `from bq.app import
+app`, porque `app.py` liga o nome no próprio import.
+
+🔴 O banco é temporário e o script **aborta** se a configuração resolver para dentro de `api/`.
+`api/party.db` tem o histórico real das festas passadas, é gitignored, e não existe cópia.
+
+As guardas de voto são zeradas por `PATCH /api/host/settings` — o caminho que a
+[RF-24](01-requisitos-funcionais.md) abre. Dormir 20 s provaria o relógio, não a votação.
 
 ## 3. Testes de mesa
 
@@ -242,6 +286,22 @@ gente. Uma passada de ~30 min, com a JBL ligada e o monitor no lugar.
 | V17 | Regras → "esperar antes de liberar o voto" acima da duração da faixa | a janela de voto acusa em vermelho "ninguém consegue votar", e o botão no celular **não** libera até a música acabar |
 | V18 | Fechar o Spotify desktop estando na aba **Fila** | em ≤ 5 s o `●` acende na aba Saúde sem você trocar de aba |
 
+**Sete itens ganharam cobertura automática** (§2.3), e a lista continua manual porque o ensaio
+geral não é sobre o que o software conclui, e sim sobre a sala:
+
+| Item | Onde |
+|---|---|
+| V3 (parcial) | isolada — a escala tipográfica da `/tv` é asserida; ler a 3 m continua humano |
+| V6 | festa — cinco *browser contexts*, cinco cookies, o `end_reason` é `skip_vote` |
+| V10 | festa — junto com a segunda metade de V16 |
+| V11 (parcial) | isolada — socket derrubado mostra "reconectando…"; o Wi-Fi oscilando de verdade, não |
+| V13 · V14 | isolada — `page.clock` avança e o botão se libera (ou não) sozinho |
+| V16 | isolada (o discriminante da tela) **e** festa (o servidor continua `idle`, não `paused`) |
+
+**O que segue sem substituto:** V1 (gap ≤ 1 s), V2, V4 (zoom no iOS), V5, V7, V8, V9, V12, V15,
+V17 e V18. Todos dependem de hardware, de outro aparelho, ou de gente — nenhum é candidato a
+automação, e tentar seria trocar uma verificação honesta por uma que parece verde.
+
 **V13 a V15 cobrem os dois defeitos que a primeira festa revelou** — a guarda de voto que não se
 anunciava e o socket que abre antes de existir sessão ([06 §6](06-realtime-websocket.md) e §7). V15
 tem de ser num aparelho **sem cookie prévio**: em aba anônima, ou num celular que nunca abriu a
@@ -270,6 +330,8 @@ O `bq` está pronto para a festa quando:
 - [ ] M0 e M1 completos, ou M1 com os cortes conscientes de [09](09-plano-implementacao.md#se-o-tempo-apertar)
 - [ ] `pytest` verde, incluindo os 4 de §3.3 e a simulação de §3.5
 - [ ] `npm run build` limpo, com `vue-tsc` sem erro
+- [ ] `npm test` verde (suíte isolada — não precisa de venv nem de Spotify)
+- [ ] `npm run test:festa` verde — opcional, e a única que exige a venv de pé
 - [ ] V1 a V12 verificados **com a JBL ligada e o monitor no lugar**
 - [ ] `start.ps1` funciona numa máquina recém-reiniciada, sem passo manual esquecido
 - [ ] [runbook](11-runbook-da-festa.md) lido uma vez, com você em frente ao notebook

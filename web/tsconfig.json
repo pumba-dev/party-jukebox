@@ -4,7 +4,9 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    // `node` entrou junto com o Playwright: os dois `playwright.config.ts` leem `process.env.CI`,
+    // e sem isto o typecheck não conhece `process`.
+    "types": ["vite/client", "node"],
     // Sem `baseUrl`: ele está deprecado e para de funcionar no TypeScript 7. Não é preciso —
     // desde o TS 5 um `paths` com valores prefixados por `./` resolve relativo a ESTE arquivo. A
     // alternativa que o próprio compilador sugere (`"ignoreDeprecations": "6.0"`) só adia o
@@ -28,5 +30,16 @@
     "noEmit": true,
     "jsx": "preserve"
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"]
+  // 🔴 `testes/` entra no include DE PROPÓSITO, e é metade do valor da suíte. As fábricas de
+  // `testes/apoio/snapshot.ts` são tipadas contra `src/types/ws.ts`, então renomear um campo do
+  // protocolo do WebSocket passa a quebrar `npm run build` — a mesma garantia do ADR-006, agora
+  // valendo para a parte do protocolo que não passa por pydantic e que o `contract.ts` não
+  // alcança (os envelopes `hello` e `notice`, montados como dict cru em bq/view/ws.py).
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "testes/**/*.ts",
+    "playwright.config.ts",
+    "playwright.festa.config.ts"
+  ]
 }
