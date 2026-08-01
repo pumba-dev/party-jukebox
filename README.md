@@ -180,7 +180,7 @@ Todas ajustáveis no `/host` durante a festa, com efeito imediato.
 | **A fila alterna entre pessoas** | — | quem pede 3 músicas não toca 3 seguidas. Todo primeiro pedido de todo mundo vem antes de qualquer segundo pedido |
 | Uma sugestão aceita por pessoa | a cada **2 min** | sem isso, quem digita mais rápido controla a festa. Tentativa recusada não gasta a vez |
 | **5 votos pulam** a faixa | 5 | o voto vale para a execução atual e não expira. Trocou a música, os votos deixam de existir |
-| Voto só depois de ouvir um pouco | 20 s ou 25 % | e não nos últimos 15 s, e não nos 45 s depois de um skip |
+| Voto só depois de ouvir um pouco | **20 s** | e não nos últimos 15 s, e não nos 45 s depois de um skip. Ajustável no `/host` |
 | Retirar o voto | sempre | sem exceção, mesmo durante proteção ou cooldown |
 | Mesma faixa duas vezes na fila | proibido | contra acidente: três pessoas amam a mesma música |
 | Faixa que já tocou | libera em **90 min** | às 2h da manhã, a música que abriu a festa é a que a sala quer de novo |

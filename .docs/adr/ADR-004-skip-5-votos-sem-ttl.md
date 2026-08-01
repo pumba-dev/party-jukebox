@@ -76,14 +76,40 @@ Coberto por teste em [10 §3.3](../10-testes-e-validacao.md).
 
 | Guarda | Valor | Sem ela |
 |---|---|---|
-| mínimo ouvido | `min(20 s, 25 %)` | pula-se pelos 3 primeiros segundos, antes de a música ser a música |
+| mínimo ouvido | `20 s`, ajustável (§Revisão) | pula-se pelos 3 primeiros segundos, antes de a música ser a música |
 | falta pouco | < 15 s | gasta-se um skip no que ia acabar sozinho |
 | cooldown pós-skip | 45 s | dois skips em cadeia, e ninguém ouve nada |
 | proteção | 90 s após force-play | a música do bolo morre em 8 s ([ADR-008](ADR-008-force-play-simples-vs-park-resume.md)) |
 | `playId` casando | — | voto de uma tela desatualizada conta contra a faixa errada |
 
-O `min(20 s, 25 %)` e não `max`: uma faixa de 40 s precisaria esperar 20 s — metade dela — para poder ser
-pulada. Há teste tabelar para essa fronteira ([10 §3.2](../10-testes-e-validacao.md)).
+## Revisão — 01/08/2026 · o teto de 25 % sai
+
+**O que muda:** `guards.min_heard_ms()` devolvia `min(S.min_heard_ms, duration_ms // 4)` e passa a
+devolver `S.min_heard_ms`, literalmente.
+
+**O argumento original continua válido**, e é este: `min` e não `max` porque uma faixa de 40 s
+precisaria esperar 20 s — metade dela — para poder ser pulada. Isso não deixou de ser verdade.
+
+**Por que foi revertido mesmo assim.** O teto era invisível e por isso **mentia**. Com 45 s
+ajustados no `/host`, numa faixa de 2:30 o valor efetivo era 37 s; o host mexia no controle, o
+número mostrado não era o número em vigor, e não havia tela, log nem erro que dissesse a diferença.
+Um limiar que não faz o que diz é pior que um limiar mal escolhido — a mesma razão pela qual este
+ADR recusou "50 % dos ativos" no Contexto acima: *um limiar impossível de exibir lê como o app estar
+mentindo.* O teto era uma instância pequena do mesmo problema.
+
+O que substitui a proteção automática é **exibição**: o `/host` mostra a janela de voto que resulta
+da combinação dos limiares, calculada sobre a faixa que está tocando ([08 §8](../08-frontend.md)).
+Trocou-se um piso silencioso por uma consequência visível.
+
+**O que se perdeu, explicitamente.** Nada impede mais `min_heard_ms + min_remaining_ms > duração`, e
+nesse estado a faixa é **impossível de pular**: `blocked()` devolve `TOO_EARLY` do começo ao fim.
+Como `TOO_EARLY` precede `ALMOST_OVER` na ordem, o segundo fica inalcançável — não é "trava e
+destrava", é travado o tempo todo. E a mensagem engana: "deixa ela tocar mais 18 s" numa faixa com
+8 s de sobra. Coberto por `test_limiar_maior_que_a_faixa_a_torna_impossivel_de_pular`, que existe
+para isso não ser redescoberto na festa.
+
+🔴 **A condição de validade desta reversão é a janela de voto na tela.** Ela é a única coisa que
+avisa. Se sair do `/host`, o teto tem de voltar — e aí este parágrafo é a justificativa.
 
 ## Nomes de votantes
 

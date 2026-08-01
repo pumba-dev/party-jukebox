@@ -8,5 +8,5 @@ INSERT OR IGNORE INTO setting(key, value) VALUES
   ('protect_ms',          '90000'),    -- RF-26 · 90 s
   ('skip_cooldown_ms',    '45000'),    -- RF-23
   ('min_remaining_ms',    '15000'),    -- RF-23
-  ('min_heard_ms',        '20000'),    -- RF-23 · teto; o piso é 25% da duração
+  ('min_heard_ms',        '20000'),    -- RF-23 · literal; o teto de 25% saiu (ADR-004 §Revisão)
   ('paused',              '0');

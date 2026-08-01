@@ -81,7 +81,9 @@ def test_o_relogio_falso_alcanca_quem_mede_tempo(clk: FakeClock, base: None) -> 
         "heard_ms não seguiu o relógio falso — o mono_ms real avança microssegundos sem sleep. "
         "Alguém importou mono_ms pelo nome, ou existe um segundo módulo de relógio."
     )
-    assert guards.min_heard_ms(p) == 2_500, "25 % de 10 s, em aritmética inteira (RNF-08)"
+    # A segunda leitura derivada do MESMO avanço: se `heard_ms` seguiu o relógio falso e
+    # `remaining_ms` não, alguém tem uma cópia do relógio ou uma aritmética própria.
+    assert p.remaining_ms() == 7_000, "remaining_ms não deriva do mesmo relógio que heard_ms"
 
 
 def test_o_alvo_do_conftest_e_o_mesmo_objeto_que_os_consumidores_veem() -> None:

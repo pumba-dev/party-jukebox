@@ -26,12 +26,22 @@ BlockedReason = Literal["PROTECTED", "TOO_EARLY", "ALMOST_OVER", "SKIP_COOLDOWN"
 
 
 def min_heard_ms(c: Play) -> int:
-    """20 s ou 25 % da duração, o que for MENOR (RF-23).
+    """O que o host ajustou, literalmente (RF-23, revisado — ver ADR-004 §Revisão).
 
-    `//` é divisão inteira: a aritmética de tempo deste sistema é inteira em milissegundos,
-    sem exceção (RNF-08).
+    🔴 Havia aqui um teto de 25 % da duração (`min(S.min_heard_ms, c.duration_ms // 4)`), e ele
+    **mentia**: o host punha 45 s, numa faixa de 2:30 valiam 37 s, e nada em lugar nenhum dizia
+    isso. O argumento original de ADR-004 continua válido — numa faixa de 40 s esperar 20 s é
+    metade dela — mas o que mudou é que o número deixou de ser invisível: o /host agora mostra a
+    janela de voto que resulta da combinação, calculada sobre a faixa que está tocando.
+
+    O efeito colateral é real e é assumido: `min_heard_ms + min_remaining_ms > duration_ms` torna a
+    faixa impossível de pular, e o servidor aceita sem erro. Quem avisa é a tela, e é a única coisa
+    que avisa. Se essa linha do /host morrer, o teto tem de voltar.
+
+    O parâmetro `c` fica: as outras funções do módulo têm a mesma forma, e é aqui que mora
+    qualquer regra futura que dependa da faixa.
     """
-    return min(S.min_heard_ms, c.duration_ms // 4)
+    return S.min_heard_ms
 
 
 def is_protected(c: Play) -> bool:

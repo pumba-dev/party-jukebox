@@ -94,7 +94,7 @@ async def test_borda_avisa_ANTES_de_recusar_por_almost_over(
     seguia dizendo "Pular", a pessoa tocava e levava 409 — exatamente o que o topo de `guards.py`
     existe para impedir.
     """
-    cond, _, votantes = await tocando(clk, duracao=40_000)  # min_heard 10 s, almost_over aos 25 s
+    cond, _, votantes = await tocando(clk, duracao=40_000)  # min_heard 20 s, almost_over aos 25 s
     cur = cond.current
     assert cur is not None
 
@@ -305,7 +305,7 @@ async def test_guardas_na_ordem_com_o_motivo_certo(clk: FakeClock, base: None) -
     cur = cond.current
     assert cur is not None
 
-    # 1. cedo demais (20 s ou 25 % da duração, o que for MENOR)
+    # 1. cedo demais (`S.min_heard_ms`, literal em qualquer duração)
     with pytest.raises(ApiError) as e:
         await votes.cast(votantes[0], cur.play_id)
     assert e.value.code == "TOO_EARLY" and e.value.data["waitMs"] > 0
@@ -331,16 +331,64 @@ async def test_guardas_na_ordem_com_o_motivo_certo(clk: FakeClock, base: None) -
     assert e.value.code == "STALE_PLAY"
 
 
-async def test_min_heard_usa_25_por_cento_em_faixa_curta(clk: FakeClock, base: None) -> None:
-    """`min(20 s, 25 % da duração)`: numa faixa de 40 s o mínimo é 10 s, não 20."""
+async def test_min_heard_vale_o_ajuste_em_qualquer_duracao(clk: FakeClock, base: None) -> None:
+    """RF-23 revisado: o limiar é o que o host ajustou, sem teto de duração (ADR-004 §Revisão).
+
+    Antes havia `min(S.min_heard_ms, duracao // 4)`, e numa faixa de 40 s o mínimo era 10 s. O teto
+    saiu porque ele MENTIA: com 45 s ajustados, uma faixa de 2:30 liberava aos 37 s e nada dizia
+    isso. Agora o número é literal, e quem mostra a consequência é a janela de voto do /host.
+    """
     cond, _, votantes = await tocando(clk, duracao=40_000)
     cur = cond.current
     assert cur is not None
-    assert guards.min_heard_ms(cur) == 10_000
+    assert guards.min_heard_ms(cur) == S.min_heard_ms == 20_000, "a duração não tem mais voz aqui"
 
+    # aos 11 s ainda é cedo — com o teto antigo (10 s) este voto teria passado
     clk.advance(11_000)
+    with pytest.raises(ApiError) as e:
+        await votes.cast(votantes[0], cur.play_id)
+    assert e.value.code == "TOO_EARLY"
+
+    # e aos 21 s libera, dentro da janela apertada que sobra numa faixa de 40 s
+    clk.advance(10_000)
     r = await votes.cast(votantes[0], cur.play_id)
     assert r.votes == 1
+
+
+async def test_limiar_maior_que_a_faixa_a_torna_impossivel_de_pular(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 O preço de tirar o teto de 25 %, escrito como teste para não ser redescoberto na festa.
+
+    Com `min_heard_ms` maior que a duração, `falta_ouvir` nunca chega a zero: `blocked()` devolve
+    TOO_EARLY do primeiro ao último segundo e **nunca** `None`. E como TOO_EARLY vem ANTES de
+    ALMOST_OVER na ordem normativa, o segundo é inalcançável — não é "trava, depois destrava, depois
+    trava de novo", é travado o tempo todo.
+
+    Pior que a recusa é a mensagem: `_mensagem` diz "deixa ela tocar mais 18 s" numa faixa com 8 s
+    de sobra. O convidado espera, a música acaba, e ele conclui que o botão não funciona.
+
+    O servidor aceita o PATCH e responde 200. Quem avisa é a linha de janela de voto do /host, e é a
+    ÚNICA coisa que avisa — se ela morrer, o teto precisa voltar.
+    """
+    monkeypatch.setattr(S, "min_heard_ms", 60_000)
+    cond, _, votantes = await tocando(clk, duracao=50_000)
+    cur = cond.current
+    assert cur is not None
+
+    vistos = []
+    for _ in range(4):
+        clk.advance(10_000)
+        r = guards.blocked(cur)
+        vistos.append(None if r is None else r[0])
+
+    assert vistos == ["TOO_EARLY"] * 4, f"o veredito mudou em algum ponto: {vistos}"
+    assert cur.remaining_ms() < S.min_heard_ms - cur.heard_ms(), (
+        "a mensagem promete uma espera maior do que o que resta da faixa"
+    )
+    with pytest.raises(ApiError) as e:
+        await votes.cast(votantes[0], cur.play_id)
+    assert e.value.code == "TOO_EARLY"
 
 
 async def test_votar_duas_vezes_e_idempotente(clk: FakeClock, base: None) -> None:

@@ -133,8 +133,19 @@ de toda música. A confirmação vem do `pstate` do poller.
 | **RF-20** | **5 votos** pulam a faixa atual. O número é ajustável ao vivo pelo host ([RF-24](#f-host)). | M1 |
 | **RF-21** | Um voto vale para **a execução atual** e vale enquanto ela tocar. Não expira. Quando a faixa muda, todos os votos deixam de existir — por construção, não por limpeza. | M1 |
 | **RF-22** | O convidado pode **retirar** o voto. A retirada é sempre permitida, sem exceção. | M1 |
-| **RF-23** | O voto é recusado, com motivo legível, quando: a faixa mudou desde que a tela carregou; ainda não tocou o mínimo (20 s ou 25 % da duração, o que for menor); falta menos de 15 s para acabar; houve skip nos últimos 45 s; ou a faixa está protegida ([RF-26](#f-host)). | M1 |
+| **RF-23** | O voto é recusado, com motivo legível, quando: a faixa mudou desde que a tela carregou; ainda não tocou o mínimo (**20 s**, ajustável — ver a nota abaixo); falta menos de 15 s para acabar; houve skip nos últimos 45 s; ou a faixa está protegida ([RF-26](#f-host)). | M1 |
 | **RF-24** | Todos os limiares desta seção e da seção C são ajustáveis no `/host` durante a festa, com efeito imediato e sem restart. | M1 |
+
+**O mínimo ouvido não tem mais teto de duração, e isso tem um preço assumido.** Até 01/08/2026 o
+valor efetivo era `min(20 s, 25 % da duração)`. O teto saiu porque ele **mentia**: com 45 s
+ajustados, uma faixa de 2:30 liberava aos 37 s e nada em lugar nenhum dizia isso. O histórico da
+decisão e o que se perdeu estão em [ADR-004 §Revisão](adr/ADR-004-skip-5-votos-sem-ttl.md).
+
+A consequência: `min_heard_ms + min_remaining_ms > duração` torna a faixa **impossível de pular**, e
+o servidor aceita o ajuste sem erro. Pior, a mensagem fica ativamente enganosa — "deixa ela tocar
+mais 18 s" numa faixa com 8 s de sobra — porque `TOO_EARLY` precede `ALMOST_OVER` na ordem e nunca
+se resolve. Quem avisa é a **janela de voto** do `/host` ([08 §8](08-frontend.md)), calculada sobre
+a faixa que está tocando, e é a única coisa que avisa. Se ela sair da tela, o teto tem de voltar.
 
 **RF-22 não tem exceção, e a ordem de verificação importa.** Se a retirada passar pelas mesmas
 guardas do RF-23, uma pessoa que votou e mudou de ideia fica **presa** no voto assim que a faixa

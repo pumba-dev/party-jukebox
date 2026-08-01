@@ -134,14 +134,18 @@ Uma linha de tabela por guarda, mais os casos de fronteira:
 | `playId` antigo | `STALE_PLAY` |
 | durante `dispatching` | `STARTING` |
 | 12 s de uma faixa de 4:00 (mínimo = 20 s) | `TOO_EARLY`, `waitMs=8000` |
-| 12 s de uma faixa de 0:40 (mínimo = 10 s) | **aceito** — o mínimo é `min(20 s, 25 %)` |
+| 12 s de uma faixa de 0:40 | `TOO_EARLY` — o mínimo é 20 s **em qualquer duração** |
+| mínimo de 60 s numa faixa de 0:50 | `TOO_EARLY` do começo ao fim, e `ALMOST_OVER` inalcançável |
 | faltando 10 s | `ALMOST_OVER` |
 | 30 s após um skip | `SKIP_COOLDOWN` |
 | durante proteção | `PROTECTED` |
 | votar duas vezes | `200`, contagem **não** dobra |
 
-A quarta linha é a que pega o erro de escrever `max` em vez de `min`, ou de esquecer que faixa curta
-existe.
+As linhas 3 e 4 são o par que documenta a saída do teto de 25 %
+([ADR-004 §Revisão](adr/ADR-004-skip-5-votos-sem-ttl.md)). A quarta é a que importa e é
+contraintuitiva: como `TOO_EARLY` vem **antes** de `ALMOST_OVER` na ordem das guardas e nunca se
+resolve, o segundo motivo nunca sai — a faixa não trava-e-destrava, fica travada, e a mensagem
+promete uma espera maior do que o que resta da música.
 
 ### 3.3 Os quatro testes de regressão que importam
 

@@ -160,7 +160,7 @@ Ambos aceitam repetição: votar duas vezes devolve `200` com o mesmo estado, se
 # bq/playback/votes.py
 def heard_ms(c: Play)     -> int: return c.start_pos_ms + (mono_ms() - c.anchor_mono)
 def remaining_ms(c: Play) -> int: return c.duration_ms - heard_ms(c)
-def min_heard_ms(c: Play) -> int: return min(S.min_heard_ms, c.duration_ms // 4)   # 20 s ou 25 %
+def min_heard_ms(c: Play) -> int: return S.min_heard_ms     # 20 s por default, sem teto de duração
 def is_protected(c: Play) -> bool: return wall_ms() < c.protected_until
 
 async def cast(guest: Guest, play_id: int) -> Result:
@@ -178,8 +178,13 @@ async def cast(guest: Guest, play_id: int) -> Result:
     return await evaluate(cur)          # conta e, se atingiu, pede skip ao maestro
 ```
 
-Note que `min_heard_ms` usa `//` (divisão inteira) — a aritmética de tempo deste sistema é inteira em
-milissegundos, sem exceção ([RNF-08](02-requisitos-nao-funcionais.md)).
+A aritmética de tempo deste sistema é inteira em milissegundos, sem exceção
+([RNF-08](02-requisitos-nao-funcionais.md)).
+
+`min_heard_ms` tinha um teto de `25 %` da duração e não tem mais
+([ADR-004 §Revisão](adr/ADR-004-skip-5-votos-sem-ttl.md)). Consequência para esta ordem de guardas:
+com `min_heard_ms + min_remaining_ms > duration_ms`, `TOO_EARLY` **nunca** se resolve e por isso
+`ALMOST_OVER` fica inalcançável — a faixa é impossível de pular e a resposta é sempre a quarta linha.
 
 ### 4.1 `evaluate()` e a ordem que evita a reação em cadeia
 
