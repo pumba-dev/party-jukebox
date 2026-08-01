@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #0a0a0f;
+  --color-card: #16161f;
+  --color-line: #26263a;
+  --color-ink: #f2f2f7;
+  --color-mute: #9a9ab0;
+  --color-accent: #7c5cff;
+  --color-warn: #ffb020;
+}
+
+html,
+body,
+#app {
+  /* 100dvh e não 100vh: a barra do Safari come 60 px e o botão de sugerir fica embaixo dela */
+  min-height: 100dvh;
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* RNF-20 · parece trivial e é o bug de festa mais provável do frontend: com fonte menor que
+   16 px, o iOS dá zoom automático ao focar o input de busca, o layout sai de lugar, e isso
+   acontece na PRIMEIRA interação da pessoa com o app. */
+input,
+select,
+textarea,
+button {
+  font-size: 16px;
+}
+
+/* seleção acidental em vez de toque, com o celular na mão e de pé */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}

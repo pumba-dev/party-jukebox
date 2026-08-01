@@ -1,0 +1,42 @@
+[project]
+name = "bq"
+version = "0.1.0"
+description = "Birthday Queue — jukebox colaborativo de festa"
+requires-python = ">=3.13"
+
+# Quatro dependências de runtime. Nenhuma com extensão C além do que vem no CPython.
+# Ver .docs/03-arquitetura.md §2.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "pydantic-settings>=2.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.25", "mypy>=1.14"]
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["bq", "bq.spotify", "bq.routes"]
+
+[tool.setuptools.package-data]
+bq = ["schema.sql"]
+
+# RNF-24: mypy limpo nos quatro módulos com aritmética de tempo e ordenação.
+[tool.mypy]
+python_version = "3.13"
+files = ["bq"]
+strict = false
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["bq.clock", "bq.queue", "bq.votes", "bq.conductor"]
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

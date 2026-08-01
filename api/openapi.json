@@ -1,0 +1,1599 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "bq — Birthday Queue",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/session": {
+      "post": {
+        "tags": [
+          "convidado"
+        ],
+        "summary": "Create Session",
+        "description": "Cria ou reidentifica o convidado. Idempotente por cookie: com cookie válido isto é\n`UPDATE` do MESMO convidado, nunca um segundo.",
+        "operationId": "create_session_api_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "convidado"
+        ],
+        "summary": "Rename Session",
+        "description": "RF-03. Renomeia **o mesmo** convidado: `UPDATE`, nunca `INSERT`.\n\n🔴 Se isto criasse um convidado novo, o cooldown de RF-09 morreria — e não por má fé: a\nprimeira pessoa que trocasse o apelido descobriria por acidente que o cooldown zerou, e\ncontaria para as outras. É a única defesa de cota que sobrou depois do corte de segurança,\ne ela cabe na escolha entre dois verbos SQL.",
+        "operationId": "rename_session_api_session_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suggestions": {
+      "post": {
+        "tags": [
+          "convidado"
+        ],
+        "summary": "Suggest",
+        "description": "A ORDEM DE VALIDAÇÃO É NORMATIVA (05 §3), porque decide qual mensagem a pessoa vê.\n\nE o cooldown é verificado no passo 2 mas gravado no passo 7: assim uma tentativa recusada\nnão gasta a vez (RF-09) — quem escolheu uma música de 9 minutos e levou `TOO_LONG` escolhe\noutra imediatamente, em vez de esperar 2 minutos por um erro.",
+        "operationId": "suggest_api_suggestions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suggestions/{suggestion_id}": {
+      "delete": {
+        "tags": [
+          "convidado"
+        ],
+        "summary": "Remove Suggestion",
+        "description": "RF-14. Só a própria, só enquanto não começou a tocar.\n\n**Não devolve a cota do cooldown**, e isso é a outra metade da mesma decisão: sem ela,\n\"sugerir e remover\" seria um jeito acidental de manter a fila inteira sob controle de uma\npessoa, e alguém descobre isso sem querer nos primeiros 20 minutos.",
+        "operationId": "remove_suggestion_api_suggestions__suggestion_id__delete",
+        "parameters": [
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skip-votes": {
+      "post": {
+        "tags": [
+          "convidado"
+        ],
+        "summary": "Cast Vote",
+        "operationId": "cast_vote_api_skip_votes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoteOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "convidado"
+        ],
+        "summary": "Retract Vote",
+        "operationId": "retract_vote_api_skip_votes_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoteOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "tags": [
+          "busca"
+        ],
+        "summary": "Search",
+        "operationId": "search_api_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/state": {
+      "get": {
+        "tags": [
+          "estado"
+        ],
+        "summary": "State",
+        "operationId": "state_api_state_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/session": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Session",
+        "description": "RF-31. `secrets.compare_digest` não é paranoia de timing — é o jeito certo de comparar\nduas strings e custa o mesmo.",
+        "operationId": "host_session_api_host_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Host Session Api Host Session Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/settings": {
+      "get": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Read Settings",
+        "operationId": "read_settings_api_host_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsFull"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Patch Settings",
+        "description": "RF-24. Efeito imediato, sem restart: grava em `setting`, recarrega o cache em memória e\nfaz broadcast — o /tv precisa passar a dizer `n de 4` na mesma hora.",
+        "operationId": "patch_settings_api_host_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsFull"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/skip": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Skip",
+        "description": "RF-27. Ignora votos, proteção e cooldown — mas **grava** o cooldown, para os votos dos\nconvidados não se acumularem contra a próxima faixa.",
+        "operationId": "host_skip_api_host_skip_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Host Skip Api Host Skip Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/pause": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Pause",
+        "operationId": "host_pause_api_host_pause_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Host Pause Api Host Pause Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/resume": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Resume",
+        "operationId": "host_resume_api_host_resume_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Host Resume Api Host Resume Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/force-play": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Force Play",
+        "description": "RF-26. É a saída manual do estado `idle` de ADR-005 — a rede que transforma \"silêncio\nquando a fila esvazia\" numa espera em vez de um beco.",
+        "operationId": "force_play_api_host_force_play_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForcePlayIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForcePlayOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/skip-votes": {
+      "get": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Skip Voters",
+        "description": "RF-25. A única rota que expõe **nomes** de votantes. Não existe equivalente para\nconvidado nem para o /tv.",
+        "operationId": "skip_voters_api_host_skip_votes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VotersOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/suggestions/{suggestion_id}": {
+      "delete": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Remove",
+        "description": "RF-29. O host remove qualquer sugestão, não só a própria.",
+        "operationId": "host_remove_api_host_suggestions__suggestion_id__delete",
+        "parameters": [
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/device/resolve": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Resolve Device",
+        "description": "O botão de \"reabri o Spotify, tenta de novo\" — a ação de recuperação mais provável da\nnoite, e a razão de o device ser guardado por NOME e não por id (07 §3).",
+        "operationId": "resolve_device_api_host_device_resolve_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Resolve Device Api Host Device Resolve Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/health": {
+      "get": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Health",
+        "description": "RNF-27. `passive` e `restarts` existem por causa de RNF-11: quando o maestro morre e\nrenasce, ou desiste, **tudo continua parecendo saudável** — a API responde, a fila aparece,\nos votos contam — e nada toca. Sem esses dois números você fica olhando uma tela verde numa\nsala silenciosa.",
+        "operationId": "health_api_host_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Api Host Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/spotify-check": {
+      "get": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Spotify Check",
+        "description": "Diagnóstico de uma tacada: o que o Spotify diz estar tocando e quais devices existem.",
+        "operationId": "spotify_check_api_host_spotify_check_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Spotify Check Api Host Spotify Check Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ForcePlayIn": {
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "title": "Trackid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trackId"
+        ],
+        "title": "ForcePlayIn"
+      },
+      "ForcePlayOut": {
+        "properties": {
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "protectedUntilMs": {
+            "type": "integer",
+            "title": "Protecteduntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "protectedUntilMs"
+        ],
+        "title": "ForcePlayOut"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Me": {
+        "properties": {
+          "guestId": {
+            "type": "integer",
+            "title": "Guestid"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          },
+          "cooldownUntilMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldownuntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "guestId",
+          "nickname",
+          "cooldownUntilMs"
+        ],
+        "title": "Me"
+      },
+      "PinIn": {
+        "properties": {
+          "pin": {
+            "type": "string",
+            "title": "Pin"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pin"
+        ],
+        "title": "PinIn"
+      },
+      "PlayerDispatching": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "dispatching",
+            "title": "Type",
+            "default": "dispatching"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          }
+        },
+        "type": "object",
+        "required": [
+          "track"
+        ],
+        "title": "PlayerDispatching"
+      },
+      "PlayerIdle": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "idle",
+            "title": "Type",
+            "default": "idle"
+          }
+        },
+        "type": "object",
+        "title": "PlayerIdle"
+      },
+      "PlayerPaused": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "paused",
+            "title": "Type",
+            "default": "paused"
+          },
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "positionMs": {
+            "type": "integer",
+            "title": "Positionms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "track",
+          "positionMs"
+        ],
+        "title": "PlayerPaused"
+      },
+      "PlayerPlaying": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "playing",
+            "title": "Type",
+            "default": "playing"
+          },
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "positionMs": {
+            "type": "integer",
+            "title": "Positionms"
+          },
+          "anchorEpochMs": {
+            "type": "integer",
+            "title": "Anchorepochms"
+          },
+          "suggestedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestedby"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "guest",
+              "host_force"
+            ],
+            "title": "Source"
+          },
+          "protectedUntilMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protecteduntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "track",
+          "positionMs",
+          "anchorEpochMs",
+          "suggestedBy",
+          "source",
+          "protectedUntilMs"
+        ],
+        "title": "PlayerPlaying"
+      },
+      "QueueItem": {
+        "properties": {
+          "suggestionId": {
+            "type": "integer",
+            "title": "Suggestionid"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "suggestedBy": {
+            "type": "string",
+            "title": "Suggestedby"
+          },
+          "isYours": {
+            "type": "boolean",
+            "title": "Isyours"
+          },
+          "wasInterrupted": {
+            "type": "boolean",
+            "title": "Wasinterrupted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suggestionId",
+          "track",
+          "suggestedBy",
+          "isYours",
+          "wasInterrupted"
+        ],
+        "title": "QueueItem"
+      },
+      "SearchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "SearchResponse"
+      },
+      "SearchResult": {
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "title": "Trackid"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "artists": {
+            "type": "string",
+            "title": "Artists"
+          },
+          "album": {
+            "type": "string",
+            "title": "Album"
+          },
+          "artUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arturl"
+          },
+          "durationMs": {
+            "type": "integer",
+            "title": "Durationms"
+          },
+          "explicit": {
+            "type": "boolean",
+            "title": "Explicit"
+          },
+          "queueable": {
+            "type": "boolean",
+            "title": "Queueable",
+            "default": true
+          },
+          "blockedReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ALREADY_QUEUED",
+                  "PLAYED_RECENTLY",
+                  "TOO_LONG"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedreason"
+          },
+          "blockedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trackId",
+          "name",
+          "artists",
+          "album",
+          "artUrl",
+          "durationMs",
+          "explicit"
+        ],
+        "title": "SearchResult"
+      },
+      "SessionIn": {
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nickname"
+        ],
+        "title": "SessionIn"
+      },
+      "SessionOut": {
+        "properties": {
+          "guestId": {
+            "type": "integer",
+            "title": "Guestid"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          },
+          "cooldownUntilMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldownuntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "guestId",
+          "nickname",
+          "cooldownUntilMs"
+        ],
+        "title": "SessionOut"
+      },
+      "SettingsFull": {
+        "properties": {
+          "skipVotesNeeded": {
+            "type": "integer",
+            "title": "Skipvotesneeded"
+          },
+          "suggestCooldownMs": {
+            "type": "integer",
+            "title": "Suggestcooldownms"
+          },
+          "maxDurationMs": {
+            "type": "integer",
+            "title": "Maxdurationms"
+          },
+          "repeatWindowMs": {
+            "type": "integer",
+            "title": "Repeatwindowms"
+          },
+          "protectMs": {
+            "type": "integer",
+            "title": "Protectms"
+          },
+          "skipCooldownMs": {
+            "type": "integer",
+            "title": "Skipcooldownms"
+          },
+          "minRemainingMs": {
+            "type": "integer",
+            "title": "Minremainingms"
+          },
+          "minHeardMs": {
+            "type": "integer",
+            "title": "Minheardms"
+          },
+          "paused": {
+            "type": "boolean",
+            "title": "Paused"
+          }
+        },
+        "type": "object",
+        "required": [
+          "skipVotesNeeded",
+          "suggestCooldownMs",
+          "maxDurationMs",
+          "repeatWindowMs",
+          "protectMs",
+          "skipCooldownMs",
+          "minRemainingMs",
+          "minHeardMs",
+          "paused"
+        ],
+        "title": "SettingsFull"
+      },
+      "SettingsOut": {
+        "properties": {
+          "skipVotesNeeded": {
+            "type": "integer",
+            "title": "Skipvotesneeded"
+          },
+          "suggestCooldownMs": {
+            "type": "integer",
+            "title": "Suggestcooldownms"
+          },
+          "maxDurationMs": {
+            "type": "integer",
+            "title": "Maxdurationms"
+          },
+          "repeatWindowMs": {
+            "type": "integer",
+            "title": "Repeatwindowms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "skipVotesNeeded",
+          "suggestCooldownMs",
+          "maxDurationMs",
+          "repeatWindowMs"
+        ],
+        "title": "SettingsOut"
+      },
+      "SettingsPatch": {
+        "properties": {
+          "skipVotesNeeded": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipvotesneeded"
+          },
+          "suggestCooldownMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1800000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestcooldownms"
+          },
+          "maxDurationMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1800000.0,
+                "minimum": 60000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxdurationms"
+          },
+          "repeatWindowMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeatwindowms"
+          },
+          "protectMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 600000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protectms"
+          },
+          "skipCooldownMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 600000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipcooldownms"
+          },
+          "minRemainingMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 120000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minremainingms"
+          },
+          "minHeardMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 300000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minheardms"
+          }
+        },
+        "type": "object",
+        "title": "SettingsPatch",
+        "description": "RF-24. Campos opcionais; só o enviado muda. Efeito imediato, sem restart — o /tv precisa\npassar a dizer `n de 4` na mesma hora."
+      },
+      "SkipState": {
+        "properties": {
+          "votes": {
+            "type": "integer",
+            "title": "Votes"
+          },
+          "needed": {
+            "type": "integer",
+            "title": "Needed"
+          },
+          "youVoted": {
+            "type": "boolean",
+            "title": "Youvoted"
+          },
+          "blockedReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "PROTECTED",
+                  "TOO_EARLY",
+                  "ALMOST_OVER",
+                  "SKIP_COOLDOWN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedreason"
+          },
+          "blockedUntilMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockeduntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "votes",
+          "needed",
+          "youVoted"
+        ],
+        "title": "SkipState"
+      },
+      "StateSnapshot": {
+        "properties": {
+          "v": {
+            "type": "integer",
+            "title": "V"
+          },
+          "bootId": {
+            "type": "string",
+            "title": "Bootid"
+          },
+          "joinUrl": {
+            "type": "string",
+            "title": "Joinurl"
+          },
+          "player": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlayerIdle"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerDispatching"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerPlaying"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerPaused"
+              }
+            ],
+            "title": "Player",
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "dispatching": "#/components/schemas/PlayerDispatching",
+                "idle": "#/components/schemas/PlayerIdle",
+                "paused": "#/components/schemas/PlayerPaused",
+                "playing": "#/components/schemas/PlayerPlaying"
+              }
+            }
+          },
+          "queue": {
+            "items": {
+              "$ref": "#/components/schemas/QueueItem"
+            },
+            "type": "array",
+            "title": "Queue"
+          },
+          "skip": {
+            "$ref": "#/components/schemas/SkipState"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SettingsOut"
+          },
+          "guestsOnline": {
+            "type": "integer",
+            "title": "Guestsonline"
+          },
+          "me": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Me"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "v",
+          "bootId",
+          "joinUrl",
+          "player",
+          "queue",
+          "skip",
+          "settings",
+          "guestsOnline",
+          "me"
+        ],
+        "title": "StateSnapshot",
+        "description": "O que `GET /api/state` devolve e o que o WebSocket vai enviar em M1.1, campo a campo.\n\nUm shape só, com um construtor só (bq/snapshot.py), para as duas telas nunca divergirem."
+      },
+      "SuggestIn": {
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "title": "Trackid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trackId"
+        ],
+        "title": "SuggestIn"
+      },
+      "SuggestOut": {
+        "properties": {
+          "suggestionId": {
+            "type": "integer",
+            "title": "Suggestionid"
+          },
+          "positionHint": {
+            "type": "string",
+            "title": "Positionhint"
+          },
+          "cooldownUntilMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldownuntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suggestionId",
+          "positionHint",
+          "cooldownUntilMs"
+        ],
+        "title": "SuggestOut"
+      },
+      "Track": {
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "title": "Trackid"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "artists": {
+            "type": "string",
+            "title": "Artists"
+          },
+          "album": {
+            "type": "string",
+            "title": "Album"
+          },
+          "artUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arturl"
+          },
+          "durationMs": {
+            "type": "integer",
+            "title": "Durationms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trackId",
+          "name",
+          "artists",
+          "album",
+          "artUrl",
+          "durationMs"
+        ],
+        "title": "Track"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VoteIn": {
+        "properties": {
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId"
+        ],
+        "title": "VoteIn"
+      },
+      "VoteOut": {
+        "properties": {
+          "votes": {
+            "type": "integer",
+            "title": "Votes"
+          },
+          "needed": {
+            "type": "integer",
+            "title": "Needed"
+          },
+          "youVoted": {
+            "type": "boolean",
+            "title": "Youvoted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "votes",
+          "needed",
+          "youVoted"
+        ],
+        "title": "VoteOut"
+      },
+      "Voter": {
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          },
+          "votedAtMs": {
+            "type": "integer",
+            "title": "Votedatms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nickname",
+          "votedAtMs"
+        ],
+        "title": "Voter"
+      },
+      "VotersOut": {
+        "properties": {
+          "playId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playid"
+          },
+          "needed": {
+            "type": "integer",
+            "title": "Needed"
+          },
+          "voters": {
+            "items": {
+              "$ref": "#/components/schemas/Voter"
+            },
+            "type": "array",
+            "title": "Voters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "needed",
+          "voters"
+        ],
+        "title": "VotersOut",
+        "description": "A única rota que expõe nomes de votantes (RF-25). Não existe equivalente para convidado\nnem para o /tv, e o snapshot do WebSocket não contém esta lista."
+      }
+    }
+  }
+}

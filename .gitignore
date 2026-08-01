@@ -1,0 +1,27 @@
+# segredos e estado local — nunca versionar
+api/.env
+api/.tokens.json
+api/party.db
+api/party.db-wal
+api/party.db-shm
+api/party.log
+
+# python
+api/.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+# metadata do `pip install -e .`, regenerada a cada install
+api/bq.egg-info/
+
+# node
+web/node_modules/
+web/dist/
+web/src/types/api.d.ts
+
+# editor / os
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
