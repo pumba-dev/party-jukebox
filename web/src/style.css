@@ -12,6 +12,13 @@
      faixa anterior, a diferença tem de ser de MATIZ e não de intensidade — a 3 metros, dois
      tons de amarelo são o mesmo amarelo. */
   --color-hot: #ff4d4f;
+  /* Karaokê. `accent` já significa "a fila normal" nas quatro telas, e a 3 metros a pergunta
+     "isto é música ou é alguém cantando?" precisa se responder pela COR antes de o olho chegar
+     no texto. Pela mesma regra do `hot`, a diferença é de MATIZ: 187° contra os 253° do accent,
+     com os âmbares e vermelhos já ocupados por atenção e urgência. Verde foi descartado porque
+     lê como "status ok", e karaokê não é um status. Nome curto como os outros sete: `bg-mic/20`
+     cabe onde `bg-karaoke/20` esticaria a linha inteira de classes. */
+  --color-mic: #22d3ee;
 }
 
 html,
@@ -43,24 +50,38 @@ button {
 /* O contador de skip a um voto do fim (M2.8 · /tv). Respiração contínua e não um pulso: o pulso
    diz "acabou de mudar", isto diz "está prestes a acontecer" — dois recados diferentes, e este é
    o único estado do jogo em que vale ocupar a atenção da sala continuamente. */
+/* 🔴 Parametrizada por custom property, e não duplicada: são dois recados com a mesma gramática
+   visual (uma respiração), e manter um `@keyframes` por cor faria a segunda envelhecer sozinha. A
+   cor entra como componentes RGB crus porque `rgb()` precisa deles para aplicar o alfa. */
 @keyframes bq-respira {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgb(255 77 79 / 0);
+    box-shadow: 0 0 0 0 rgb(var(--bq-respira-cor) / 0);
   }
   50% {
-    box-shadow: 0 0 2.5rem 0.35rem rgb(255 77 79 / 0.45);
+    box-shadow: 0 0 var(--bq-respira-raio) 0.35rem rgb(var(--bq-respira-cor) / 0.45);
   }
 }
 .bq-quase {
+  --bq-respira-cor: 255 77 79;
+  --bq-respira-raio: 2.5rem;
   animation: bq-respira 1.15s ease-in-out infinite;
+}
+/* A chamada do karaokê. Mais lenta e mais larga que `bq-quase` de propósito: aquilo é urgência
+   ("um voto e a música vai embora"), isto é uma espera — e uma espera que pulsa depressa lê como
+   cobrança para quem está andando até o microfone. */
+.bq-chama {
+  --bq-respira-cor: 34 211 238;
+  --bq-respira-raio: 4rem;
+  animation: bq-respira 2s ease-in-out infinite;
 }
 /* Piscar sem parar é desconfortável para quem é sensível a isso. O pulso de UM disparo por voto
    continua — ele é o recado, e 500 ms não é piscar. */
 @media (prefers-reduced-motion: reduce) {
-  .bq-quase {
+  .bq-quase,
+  .bq-chama {
     animation: none;
-    box-shadow: 0 0 2rem 0.3rem rgb(255 77 79 / 0.4);
+    box-shadow: 0 0 2rem 0.3rem rgb(var(--bq-respira-cor) / 0.4);
   }
 }
 

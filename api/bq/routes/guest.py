@@ -86,6 +86,16 @@ async def suggest(body: SuggestIn, guest: CurrentGuest) -> SuggestOut:
     """
     now = clock.wall_ms()
 
+    # 1. o karaokê está ligado?
+    #
+    # 🔴 ANTES do cooldown, e é por isso que a numeração começa aqui: uma recusa não pode gastar a
+    # vez de ninguém (RF-09). Quem tentou cantar com o karaokê desligado escolhe uma música normal
+    # na hora, em vez de esperar 2 minutos por um erro que não foi culpa dele.
+    if tracks.is_karaoke_id(body.track_id) and not (
+        S.karaoke_enabled and runtime.youtube is not None
+    ):
+        raise ApiError("KARAOKE_UNAVAILABLE", "O karaokê não está ligado nesta festa.")
+
     # 2. cooldown
     wait = queue.cooldown_left_ms(guest.last_accepted_at, now)
     if wait > 0:

@@ -7,7 +7,17 @@
 
 import { expect, test } from '@playwright/test'
 
-import { convidado, esperarTocando, hostSemCarencia, sugerir } from '../apoio/festa'
+import {
+  convidado,
+  esperarTocando,
+  fecharTvsAbertas,
+  hostSemCarencia,
+  sugerir,
+  tvDeMesa,
+} from '../apoio/festa'
+
+// Ver o comentário em `fila.spec.ts`: a /tv segura a posse do áudio no servidor.
+test.afterEach(async ({ request }) => fecharTvsAbertas(request))
 
 test('V6 · cinco convidados distintos pulam a faixa que está tocando', async ({ browser }) => {
   const host = await hostSemCarencia(browser)
@@ -37,8 +47,7 @@ test('V6 · cinco convidados distintos pulam a faixa que está tocando', async (
   }
 
   // O maestro fecha o play e despacha a próxima. A prova é a SALA: a /tv passa a anunciar a Bia.
-  const tv = await browser.newPage()
-  await tv.goto('/tv')
+  const tv = (await tvDeMesa(browser)).page
   await expect(tv.getByText(segunda)).toBeVisible({ timeout: 20_000 })
   await expect(tv.getByText(primeira)).toHaveCount(0)
 

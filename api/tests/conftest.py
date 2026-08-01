@@ -30,6 +30,12 @@ os.environ["SPOTIFY_CLIENT_SECRET"] = "test-client-secret"
 os.environ["HOST_PIN"] = "1234"
 os.environ["BIND_PORT"] = "8080"
 os.environ["LAN_IP"] = "192.168.0.10"  # não depende de adaptador de rede no teste
+# 🔴 Vazia, e por atribuição como as de cima. Quem tem a chave no `.env` de verdade faz o lifespan
+# da fixture `client` construir um `YouTubeClient`, e aí `karaokeEnabled` nasce `True` — o teste
+# que afirma "o host ligou mas não há chave" falha na máquina de quem configurou o karaokê e passa
+# na de quem não configurou. Quem quer o cliente ligado num teste chama `apoio.youtube.ligar()`,
+# que injeta o duplo. Mesma armadilha do `WIFI_PASSWORD` em `tests/core/test_net_wifi_qr.py`.
+os.environ["YOUTUBE_API_KEY"] = ""
 # o log do teste não vai para api\party.log, senão o histórico da festa nasce sujo
 os.environ["LOG_PATH"] = str(Path(tempfile.gettempdir()) / "bq-test.log")
 
@@ -48,6 +54,8 @@ from bq.core import db  # noqa: E402
 from bq.core.config import settings  # noqa: E402
 from bq.domain import guests  # noqa: E402
 from bq.domain.party import S, party  # noqa: E402
+from bq.spotify import search as spotify_search  # noqa: E402
+from bq.youtube import search as youtube_search  # noqa: E402
 
 from .apoio.relogio import FakeClock  # noqa: E402
 
@@ -77,12 +85,21 @@ def base(tmp_path: Path) -> Iterator[None]:
     party.external_strikes = 0
     party.host_tokens.clear()
     party.recent_errors.clear()
+    # A posse da /tv é monotônica e global de módulo: sem zerar, um `tvId` de outro teste continua
+    # dono e o `claim` deste responde `owner=false` sem nenhuma /tv por perto.
+    party.tv_owner = ""
+    party.tv_beat_at_mono = 0
     # Os singletons de bq.runtime são globais de módulo: sem zerar, um maestro de outro teste
     # sobrevive e `votes.cast` vota na faixa errada — que foi exatamente o que aconteceu.
     runtime.conductor = None
     runtime.hub = None
     runtime.spotify = None
     runtime.device = None
+    runtime.youtube = None
+    # 🔴 O cache de busca é global de MÓDULO e não reseta sozinho: sem isto, a busca de um teste
+    # devolve o que outro semeou, e o `misses` que alguns testes contam vem do teste anterior.
+    youtube_search.clear()
+    spotify_search.clear()
     yield
     # Invariantes no teardown de TODO teste: uma linha presa em `playing` para sempre para a
     # fila em silêncio, e o custo de descobrir isso aqui em vez de na festa é uma query.
@@ -107,6 +124,15 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     monkeypatch.setattr("bq.playback.conductor.Conductor.run_forever", sem_maestro)
     monkeypatch.setattr(settings, "db_path", tmp_path / "api.db")
     monkeypatch.setattr(settings, "tokens_path", tmp_path / ".tokens.json")
+    # 🔴 Os caches de busca são globais de MÓDULO e sobrevivem entre testes, e esta fixture não usa
+    # `base`. Sem limpar aqui, a busca de um teste devolve o que outro semeou — e o sintoma é
+    # cruel: o teste passa sozinho e falha na suíte, ou o contrário. Já custou um diagnóstico.
+    spotify_search.clear()
+    youtube_search.clear()
+    # Mesmo motivo, mesma classe de bug: a posse da /tv é global de módulo e esta fixture não passa
+    # por `base`. Um `tvId` fixo repetido entre testes herdaria a posse do anterior.
+    party.tv_owner = ""
+    party.tv_beat_at_mono = 0
     db.close()
     # 🔴 Import TARDIO, de propósito: `bq.app` monta o app no import, e o `settings.db_path`
     # acima precisa já estar patcheado quando isso acontece. Subir esta linha para o topo do

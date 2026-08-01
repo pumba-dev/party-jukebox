@@ -14,14 +14,25 @@ CREATE TABLE guest (
 );
 
 CREATE TABLE track (
-  id          TEXT    PRIMARY KEY,                   -- TrackId (22 base62)
-  uri         TEXT    NOT NULL,                      -- TrackUri
+  id          TEXT    PRIMARY KEY,                   -- TrackId (22 base62), ou 'yt:<videoId>'
+  uri         TEXT    NOT NULL,                      -- TrackUri, ou 'youtube:<videoId>'
   name        TEXT    NOT NULL,
-  artists     TEXT    NOT NULL,                      -- já formatado "A, B"
+  artists     TEXT    NOT NULL,                      -- já formatado "A, B"; o CANAL, se karaokê
   album       TEXT    NOT NULL,
   art_url     TEXT,
   duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
-  explicit    INTEGER NOT NULL DEFAULT 0
+  explicit    INTEGER NOT NULL DEFAULT 0,
+  -- De onde a faixa TOCA, e é a única diferença entre um pedido e uma vez no microfone.
+  -- 'spotify' despacha por Connect; 'karaoke' é um vídeo que a /tv toca num iframe.
+  --
+  -- 🔴 Coluna e não tabela nova. `suggestion.track_id` e `play.track_id` são FK daqui e
+  -- `queue._SELECT` faz JOIN: uma tabela paralela forçaria duas filas, dois históricos, dois
+  -- caminhos de voto e dois `_end_play` — a classe de bug que a saída única existe para tornar
+  -- inexpressável (03 §4.6).
+  --
+  -- O id de karaokê é 'yt:<videoId>'. O ':' não é base62, então ele NUNCA colide com um TrackId
+  -- do Spotify por construção — a estrutura do valor carrega a regra, como o MIN(-1, …) do bump.
+  provider    TEXT    NOT NULL DEFAULT 'spotify' CHECK (provider IN ('spotify','karaoke'))
 );
 
 CREATE TABLE play (
@@ -56,6 +67,14 @@ CREATE TABLE suggestion (
                  ('queued','playing','played','skipped','removed')),
   play_id      INTEGER REFERENCES play(id),
   interrupts   INTEGER NOT NULL DEFAULT 0,           -- quantas vezes foi interrompida
+  -- Karaokê: quantas vezes chamamos a pessoa e ela não veio. Separado de `interrupts` de
+  -- propósito — "o host furou a fila" e "a pessoa não apareceu" contam histórias diferentes.
+  noshows      INTEGER NOT NULL DEFAULT 0,
+  -- 🔴 Parede, e PERSISTIDO, e é o que impede um laço de 45 s: se a fila só tem este karaokê,
+  -- mandá-lo para o fim não muda nada e o turno reabriria imediatamente. `queue._ordered()` trata
+  -- um karaokê com `now - noshow_at < karaoke_wait_ms` como não elegível. Na linha, e não no
+  -- maestro, para `peek_next()` e `listing()` concordarem e para sobreviver a restart (RF-39).
+  noshow_at    INTEGER,                              -- NULL = nunca faltou
   CHECK (state <> 'playing' OR play_id IS NOT NULL)  -- INV-6
 );
 CREATE INDEX        ix_sug_queue        ON suggestion(state, rank, suggested_at);

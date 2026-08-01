@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     spotify_redirect_uri: str = "http://127.0.0.1:8888/callback"
     spotify_device_name: str = "PUMBABOOK"
 
+    # Karaokê. Vazio = a feature fica desligada e a aba some da tela do convidado — a ausência é
+    # ADITIVA, como a do Wi-Fi, e não aborta o boot. Config INCOERENTE é que merece SystemExit
+    # (ver `_wifi_coerente`); config ausente é uma escolha legítima de quem não quer karaokê.
+    youtube_api_key: str = ""
+
     host_pin: str = Field(pattern=r"^\d{4}$")
 
     # Rede da festa, para o segundo QR do /tv. Vazio = o /tv mostra só o QR da fila, como antes;

@@ -26,6 +26,10 @@ web/playwright-report/
 web/blob-report/
 web/playwright/.cache/
 
+# o perfil dedicado do Chrome que `start.ps1 -Tv` abre. Fronteira de segurança e não conveniência:
+# aqui dentro fica a sessão logada da conta com YouTube Premium — cookies vivos, em texto claro.
+.chrome-tv/
+
 # editor / os
 .vscode/
 .idea/

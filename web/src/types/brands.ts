@@ -14,3 +14,9 @@ export type TrackId = Brand<string, 'TrackId'>
 export type TrackUri = Brand<string, 'TrackUri'>
 export type PlayId = Brand<number, 'PlayId'>
 export type GuestId = Brand<number, 'GuestId'>
+
+// O par novo é do mesmo tipo: `dQw4w9WgXcQ` (YouTube) e `4iV5W9uYEdYUVa79Axb7Rh` (Spotify) são os
+// dois `string` de tamanho parecido, e um videoId onde se espera um TrackId chega a `force-play`
+// ou a `POST /api/suggestions` sem o compilador piscar. Do lado do Python a mesma separação é o
+// tipo `KaraokeVideo`, distinto de `Track`.
+export type YoutubeVideoId = Brand<string, 'YoutubeVideoId'>

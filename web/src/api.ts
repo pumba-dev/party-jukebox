@@ -7,7 +7,7 @@
 // português e é exibível direto ao convidado — não é log.
 
 import type { components } from './types/api'
-import type { TrackId } from './types/brands'
+import type { TrackId, YoutubeVideoId } from './types/brands'
 import type { StateSnapshot } from './types/ws'
 
 type Schemas = components['schemas']
@@ -33,6 +33,11 @@ export type ErrorCode =
   | 'SPOTIFY_ERROR'
   | 'SEARCH_BUSY'
   | 'NOT_FOUND'
+  // Karaokê desligado, sem chave do YouTube, ou chave recusada — as três com a mesma resposta,
+  // porque para o convidado significam a mesma coisa e a mensagem já diz o que é acionável.
+  | 'KARAOKE_UNAVAILABLE'
+  | 'NOT_YOUR_TURN' // tocou INICIAR na vez de outra pessoa
+  | 'STALE_TURN' // a vez já passou — o par de STALE_PLAY, para o turno
 
 export class ApiError extends Error {
   constructor(
@@ -75,6 +80,19 @@ async function req<T>(path: string, method = 'GET', body?: unknown): Promise<T> 
  * (RNF-22): depois disto, trocar `TrackId` por `TrackUri` não compila. */
 export type SearchResult = Omit<Schemas['SearchResult'], 'trackId'> & { trackId: TrackId }
 
+/** O mesmo, do outro lado: o `videoId` entra marcado como `YoutubeVideoId` e a partir daqui não
+ * é mais confundível com um `TrackId`. Note que `suggest` continua recebendo `TrackId` — quem
+ * converte é `karaokeTrackId()`, e é lá que a forma `yt:<id>` mora do lado do cliente. */
+export type KaraokeResult = Omit<Schemas['KaraokeResult'], 'videoId'> & {
+  videoId: YoutubeVideoId
+}
+
+/** 🔴 A ÚNICA construção do id interno no frontend. O servidor espera `yt:<videoId>` em
+ * `POST /api/suggestions`, e espalhar essa concatenação pelas telas seria espalhar o
+ * conhecimento do formato — no dia em que ele mudar, muda em um lugar. */
+export const karaokeTrackId = (videoId: YoutubeVideoId): TrackId =>
+  `yt:${videoId}` as unknown as TrackId
+
 export const api = {
   state: () => req<StateSnapshot>('/api/state'),
 
@@ -89,6 +107,29 @@ export const api = {
     req<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`).then(
       (r) => r.results,
     ),
+
+  /** A busca de karaokê é separada da de música porque o acervo é outro (YouTube, não Spotify) e
+   * porque o resultado é outro tipo. Mesma forma, cota MUITO menor: ~99 buscas por dia para a
+   * festa inteira, então a tela precisa do mesmo debounce e mínimo de caracteres. */
+  karaokeSearch: (q: string) =>
+    req<{ results: KaraokeResult[] }>(`/api/karaoke/search?q=${encodeURIComponent(q)}`).then(
+      (r) => r.results,
+    ),
+
+  /** A pessoa tocou INICIAR no próprio celular. O `suggestionId` no corpo não é decorativo: sem
+   * ele, um toque atrasado no botão do turno anterior começaria a vez de outra pessoa — a mesma
+   * função do `playId` no voto de skip. */
+  karaokeStart: (suggestionId: number) =>
+    req<Schemas['KaraokeStartOut']>('/api/karaoke/start', 'POST', { suggestionId }),
+
+  /** A `/tv`, e só ela. Sub-objeto para deixar isso legível na chamada: nenhuma tela de convidado
+   * tem o que fazer aqui, e um `api.report(...)` solto no meio da lista convidaria ao engano. */
+  tv: {
+    /** Bate a cada 10 s e devolve se ESTA aba é dona do áudio. Ver `PartyRuntime.tv_claim`. */
+    claim: (tvId: string) => req<Schemas['TvClaimOut']>('/api/tv/claim', 'POST', { tvId }),
+    report: (body: Schemas['TvReportIn']) =>
+      req<Schemas['TvReportOut']>('/api/tv/report', 'POST', body),
+  },
 
   suggest: (trackId: TrackId) =>
     req<Schemas['SuggestOut']>('/api/suggestions', 'POST', { trackId }),
@@ -124,6 +165,14 @@ export const api = {
     last: (suggestionId: number) =>
       req<{ ok: boolean }>(`/api/host/suggestions/${suggestionId}/last`, 'POST'),
     clearQueue: () => req<{ removed: number }>('/api/host/queue', 'DELETE'),
+    /** O host começa a vez pela pessoa: o celular dela morreu, ou ela já está de pé na frente da
+     * TV com o microfone. */
+    karaokeStart: (suggestionId: number) =>
+      req<Schemas['KaraokeStartOut']>('/api/host/karaoke/start', 'POST', { suggestionId }),
+    /** Encerra a vez em curso. `penalize` false (o default do servidor) é "essa pessoa foi
+     * embora": não conta falta, porque quem decidiu foi o host e não a ausência dela. */
+    karaokeCancel: (penalize = false) =>
+      req<{ ok: boolean }>(`/api/host/karaoke/cancel?penalize=${penalize}`, 'POST'),
     // RF-19 · sai do modo passivo. Deliberado e não temporizado: quem resolve o conflito é uma
     // pessoa fechando o outro app, então é uma pessoa que diz quando acabou.
     reactivate: () => req<{ ok: boolean }>('/api/host/reactivate', 'POST'),

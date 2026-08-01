@@ -8,7 +8,18 @@
 
 import { expect, test } from '@playwright/test'
 
-import { convidado, esperarTocando, hostSemCarencia, sugerir } from '../apoio/festa'
+import {
+  convidado,
+  esperarTocando,
+  fecharTvsAbertas,
+  hostSemCarencia,
+  sugerir,
+  tvDeMesa,
+} from '../apoio/festa'
+
+// 🔴 A /tv reivindica a POSSE DO ÁUDIO no servidor e a mantém batendo a cada 10 s. Sem soltar,
+// ela continua dona pelo resto da suíte e a /tv do teste de karaokê abre muda.
+test.afterEach(async ({ request }) => fecharTvsAbertas(request))
 
 test('V10/V16 · fila esvaziada fica idle, não paused, e a /tv chama pelo QR', async ({
   browser,
@@ -19,8 +30,7 @@ test('V10/V16 · fila esvaziada fica idle, não paused, e a /tv chama pelo QR', 
   const faixa = await sugerir(ana.page, 'ipanema')
   await esperarTocando(ana.page, faixa)
 
-  const tv = await browser.newPage()
-  await tv.goto('/tv')
+  const tv = (await tvDeMesa(browser)).page
   await expect(tv.getByText('tocando agora')).toBeVisible({ timeout: 20_000 })
 
   // O host pula a ÚNICA música da fila (RF-28 não entra nisso: ninguém pausou nada).

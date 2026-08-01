@@ -9,4 +9,10 @@ INSERT OR IGNORE INTO setting(key, value) VALUES
   ('skip_cooldown_ms',    '45000'),    -- RF-23
   ('min_remaining_ms',    '15000'),    -- RF-23
   ('min_heard_ms',        '20000'),    -- RF-23 · literal; o teto de 25% saiu (ADR-004 §Revisão)
-  ('paused',              '0');
+  ('paused',              '0'),
+  -- Karaokê. Nasce DESLIGADO: cada fatia da feature é entregável sem alterar uma festa em
+  -- andamento, e quem acende é o /host. `INSERT OR IGNORE` significa que mudar o default depois
+  -- só afeta bancos novos.
+  ('karaoke_every_n',     '0'),        -- 0 = desligado. N ≥ 1 = um karaokê a cada N normais
+  ('karaoke_wait_ms',     '45000'),    -- quanto esperamos o cantor tocar "iniciar"
+  ('karaoke_only',        '0');        -- só karaokê; a fila normal fica guardada

@@ -103,3 +103,33 @@ test('a busca dispara sozinha a partir de 2 caracteres (RF-05)', async ({ page }
   await expect(page.getByRole('button', { name: /Take on Me/ })).toBeVisible()
   expect(chamadas).toBe(1)
 })
+
+test('a confirmação da sugestão FICA na tela', async ({ page }) => {
+  // 🔴 Ela é o único retorno de "deu certo" que a pessoa recebe: o item entrando na fila rola
+  // fora da tela num celular. E ela é frágil por construção — `sugerir()` zera o campo de busca,
+  // o que dispara o `watch(q)`, que limpa a confirmação por design.
+  const resultados: SearchResult[] = [
+    {
+      trackId: 'aaa111' as TrackId,
+      name: 'Take on Me',
+      artists: 'a-ha',
+      album: 'Hunting High and Low',
+      artUrl: null,
+      durationMs: 225_000,
+      provider: 'spotify',
+      explicit: false,
+      queueable: true,
+    },
+  ]
+  await montar(page, snapshot({ me: eu(), player: tocando() }))
+  await page.route('**/api/search?*', (r) => r.fulfill({ json: { results: resultados } }))
+  await page.route('**/api/suggestions', (r) =>
+    r.fulfill({ json: { suggestionId: 1, positionHint: '2 na sua frente' } }),
+  )
+  await page.goto('/')
+
+  await page.getByPlaceholder('Buscar música ou artista').fill('take')
+  await page.getByRole('button', { name: /Take on Me/ }).click()
+
+  await expect(page.getByText('Take on Me — 2 na sua frente')).toBeVisible()
+})

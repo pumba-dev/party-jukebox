@@ -16,12 +16,16 @@ if TYPE_CHECKING:
     from .spotify.client import SpotifyClient
     from .spotify.device import DeviceResolver
     from .view.ws import Hub
+    from .youtube.client import YouTubeClient
 
 conductor: Conductor | None = None
 spotify: SpotifyClient | None = None
 device: DeviceResolver | None = None
 auth: Auth | None = None
 hub: Hub | None = None
+# `None` quando não há `YOUTUBE_API_KEY` no .env — e é assim que a feature de karaokê fica
+# desligada sem nenhum flag: `snapshot` compõe isto com `S.karaoke_enabled`, e as rotas recusam.
+youtube: YouTubeClient | None = None
 
 
 def require_conductor() -> Conductor:
@@ -40,3 +44,12 @@ def require_device() -> DeviceResolver:
     if device is None:
         raise RuntimeError("resolvedor de device não iniciado")
     return device
+
+
+def require_youtube() -> YouTubeClient:
+    """🔴 Ao contrário dos outros, este `None` é ESPERADO: significa "sem chave configurada", não
+    "ainda não subiu". Quem chama tem de traduzir para `KARAOKE_UNAVAILABLE` (422) e não deixar
+    virar 500 — é o convidado tocando numa aba que não devia estar visível."""
+    if youtube is None:
+        raise RuntimeError("cliente do YouTube não configurado")
+    return youtube

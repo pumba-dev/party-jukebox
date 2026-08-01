@@ -14,14 +14,20 @@
 
 import { computed, ref } from 'vue'
 
+/** Número para limiar, booleano para interruptor de modo (`karaokeOnly`). O mesmo controle serve
+ * aos dois: o host escolhe uma POLÍTICA numa lista curta, e "ligado/desligado" é uma lista de
+ * duas. Um `<input type="checkbox">` só para isso traria outro layout, outro foco e outro pisca
+ * de confirmação para manter em pé. */
+type Valor = number | boolean
+
 const props = defineProps<{
   rotulo: string
-  opcoes: readonly { valor: number; rotulo: string }[]
+  opcoes: readonly { valor: Valor; rotulo: string }[]
   /** Nome do campo em vigor sendo salvo, para o pisca de confirmação. */
   salvando?: boolean
 }>()
 
-const valor = defineModel<number>({ required: true })
+const valor = defineModel<Valor>({ required: true })
 const aberto = ref(false)
 
 /**
@@ -29,7 +35,7 @@ const aberto = ref(false)
  * versões — ele entra como opção própria. Sem isto o `<select>` mostraria OUTRO valor (o primeiro
  * que casa, ou nenhum) e o host acharia que era esse o que está em vigor.
  */
-const opcoes = computed(() => {
+const opcoes = computed((): readonly { valor: Valor; rotulo: string }[] => {
   if (props.opcoes.some((o) => o.valor === valor.value)) return props.opcoes
   return [{ valor: valor.value, rotulo: `Personalizado: ${valor.value} ms` }, ...props.opcoes]
 })
@@ -67,7 +73,7 @@ const atual = computed(() => opcoes.value.find((o) => o.valor === valor.value)?.
       v-model="valor"
       class="border-line focus:border-accent focus-visible:ring-accent mt-2 w-full rounded-lg border bg-black/40 px-3 py-2.5 outline-none focus-visible:ring-2"
     >
-      <option v-for="o in opcoes" :key="o.valor" :value="o.valor">{{ o.rotulo }}</option>
+      <option v-for="o in opcoes" :key="String(o.valor)" :value="o.valor">{{ o.rotulo }}</option>
     </select>
   </div>
 </template>

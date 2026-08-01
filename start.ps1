@@ -8,7 +8,15 @@
 
     Nenhum passo pede elevação de privilégio (RNF-28). No Windows, ao contrário do Unix,
     portas abaixo de 1024 não exigem administrador.
+
+    -Tv abre o monitor sozinho, no Chrome, com a política de autoplay relaxada — sem isso o
+    karaokê não faz som. A linha de comando é impressa sempre, com ou sem o switch.
 #>
+param(
+    # Abre a /tv em quiosque quando o servidor subir. Opt-in: a festa que não usa karaokê não
+    # ganha um navegador aberto por cima do que já estava na tela.
+    [switch]$Tv
+)
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -167,6 +175,73 @@ Write-Host ''
 Write-Host "  $linha" -ForegroundColor DarkGray
 Write-Host '  Ctrl+C encerra. Log completo em api\party.log' -ForegroundColor DarkGray
 Write-Host ''
+
+# --- o monitor, para o karaokê ----------------------------------------------------------------
+#
+# O karaokê toca um vídeo do YouTube num iframe da /tv, e sem estas duas coisas ele não faz som:
+#
+#   1. --autoplay-policy=no-user-gesture-required   o Chrome barra áudio sem gesto do usuário
+#   2. --user-data-dir=<perfil dedicado>            🔴 a parte que ninguém acredita ser necessária
+#
+# 🔴 Sobre (2): se o Chrome JÁ ESTIVER RODANDO no perfil padrão, `Start-Process chrome` entrega a
+# URL ao processo existente e **descarta todos os flags** — inclusive o (1). O sintoma é "o flag
+# não funciona", sem erro nenhum, sem nada no log. Um perfil próprio força um processo novo. E é
+# nele que a conta com YouTube Premium vive, que é a única coisa que de fato elimina o anúncio de
+# pré-roll no pior instante possível.
+
+$perfilTv = Join-Path $root '.chrome-tv'
+$flagsTv = @(
+    "--user-data-dir=`"$perfilTv`""
+    '--autoplay-policy=no-user-gesture-required'
+    '--no-first-run'
+    '--no-default-browser-check'
+    '--kiosk'
+    "$url/tv"
+)
+
+$chrome = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+# Impressa SEMPRE, com ou sem -Tv: sem o switch, o caminho manual precisa ser um paste, e não uma
+# linha que alguém remonta de cabeça às 21h com gente chegando.
+Write-Host '  para o karaokê, a /tv precisa subir assim:' -ForegroundColor DarkGray
+Write-Host "    chrome $($flagsTv -join ' ')" -ForegroundColor DarkGray
+Write-Host ''
+
+if ($Tv) {
+    if (-not $chrome) {
+        Write-Host '  ⚠  não achei o chrome.exe — abra a /tv à mão com a linha acima.' -ForegroundColor Yellow
+        Write-Host ''
+    }
+    else {
+        # Primeira vez: SEM quiosque, porque é preciso poder fazer login na conta com YouTube
+        # Premium — e em quiosque não há barra de endereço nem menu para chegar lá.
+        $primeira = -not (Test-Path $perfilTv)
+        if ($primeira) {
+            $flagsTv = $flagsTv | Where-Object { $_ -ne '--kiosk' }
+            Write-Host '  primeira vez neste perfil do Chrome:' -ForegroundColor Cyan
+            Write-Host '    entre na conta com YouTube Premium, feche o Chrome, e rode de novo.' -ForegroundColor Cyan
+            Write-Host '    (sem Premium o anúncio toca na frente de quem ia cantar)' -ForegroundColor DarkGray
+            Write-Host ''
+        }
+        # Em job porque o uvicorn abaixo BLOQUEIA: o Chrome tem de esperar o servidor atender,
+        # senão abre numa página de erro e fica nela. O job morre sozinho quando o Chrome sobe.
+        Start-Job -ScriptBlock {
+            param($alvo, $exe, $flags)
+            foreach ($i in 1..60) {
+                try {
+                    Invoke-WebRequest -Uri "$alvo/health" -UseBasicParsing -TimeoutSec 1 | Out-Null
+                    break
+                }
+                catch { Start-Sleep -Milliseconds 500 }
+            }
+            Start-Process -FilePath $exe -ArgumentList $flags
+        } -ArgumentList $url, $chrome, $flagsTv | Out-Null
+    }
+}
 
 # --- sobe -----------------------------------------------------------------------------------
 # Um worker, sempre: o estado deste app é singleton e --workers 2 faria dois maestros

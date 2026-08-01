@@ -16,6 +16,7 @@ from .varredura import API_DIR, arestas, modulos, nos
 CAMADAS = {
     "bq.core": 1,  # infraestrutura: não sabe nada da festa
     "bq.spotify": 2,  # fala HTTP e devolve dataclasses; não conhece o banco
+    "bq.youtube": 2,  # idem, contra o YouTube Data API v3 — ver o teste do empate abaixo
     "bq.domain": 3,  # as regras da festa
     "bq.view": 4,  # o que as TELAS recebem
     "bq.playback": 5,  # o que a CAIXA DE SOM recebe
@@ -70,6 +71,29 @@ def test_nenhuma_aresta_sobe_de_camada() -> None:
             if destino is not None and destino > origem:
                 violacoes.append(f"{nome} (camada {origem}) importa {alvo} (camada {destino})")
     assert not violacoes, "arestas subindo de camada:\n  " + "\n  ".join(violacoes)
+
+
+def test_os_clientes_externos_nao_se_conhecem() -> None:
+    """🔴 A regra que o EMPATE de camada não cobre.
+
+    `bq.spotify` e `bq.youtube` valem os dois 2, e `test_nenhuma_aresta_sobe_de_camada` só reprova
+    `destino > origem` — então um importar o outro passaria despercebido. Isso é a única brecha que
+    o empate abre, e vale fechá-la aqui em vez de inventar níveis fracionários.
+
+    O motivo não é estético: dois clientes de serviços diferentes não têm nada a dizer um ao outro.
+    No dia em que tiverem — um tipo comum, um helper de backoff — o que existe é uma terceira coisa
+    embaixo dos dois, em `core/`, e não uma aresta lateral.
+    """
+    externos = ("bq.spotify", "bq.youtube")
+    violacoes = []
+    for nome, m in modulos().items():
+        casa = next((e for e in externos if nome == e or nome.startswith(e + ".")), None)
+        if casa is None:
+            continue
+        for alvo in sorted(arestas(m)):
+            if any(alvo == e or alvo.startswith(e + ".") for e in externos if e != casa):
+                violacoes.append(f"{nome} importa {alvo}")
+    assert not violacoes, "clientes externos se conhecendo:\n  " + "\n  ".join(violacoes)
 
 
 def test_as_folhas_da_raiz_nao_importam_nada_de_bq() -> None:

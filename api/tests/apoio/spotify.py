@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from bq.spotify.client import Device, Playback, Poll, SpotifyError
+from bq.spotify.client import Device, Playback, Poll, SpotifyError, TrackData
 
 from .relogio import FakeClock
 
@@ -44,6 +44,7 @@ class FakeSpotify:
         self.fail_play_uris: dict[str, int] = {}  # faixa que falha sempre (região, catálogo)
         self.fail_poll = False  # simula falha de rede no GET /me/player
         self.fail_pause: int | None = None  # status a injetar no pause, sempre (403 já pausado, 404 sem device)
+        self.tracks_ausentes: set[str] = set()  # trackId que o catálogo do Spotify não conhece
 
     # --- device ---------------------------------------------------------------------------
 
@@ -123,3 +124,44 @@ class FakeSpotify:
 
     def search_backoff_ms(self) -> int:
         return 0
+
+    # --- catálogo ---------------------------------------------------------------------------
+    #
+    # Nada no maestro chama estes dois hoje: `search_tracks` é consumido por `spotify/search.py` e
+    # `get_track` por `domain/tracks.py`, e os dois têm teste próprio contra `httpx.MockTransport`
+    # em `tests/spotify/test_client.py`. Existem aqui porque a superfície do duplo tem de igualar
+    # a do cliente — o dia em que uma rota nova os chamar com o duplo injetado, o erro seria um
+    # `AttributeError` em produção. Ver `tests/arquitetura/test_duplos.py`.
+
+    async def search_tracks(self, q: str, limit: int = 10) -> list[TrackData]:
+        self.calls.append(("search", q))
+        return [self._track(n) for n in range(1, limit + 1)]
+
+    async def get_track(self, track_id: str) -> TrackData:
+        self.calls.append(("track", track_id))
+        if track_id in self.tracks_ausentes:
+            raise SpotifyError(404, "faixa injetada como inexistente")
+        return TrackData(
+            track_id=track_id,
+            uri=f"spotify:track:{track_id}",
+            name=f"Faixa {track_id[-4:]}",
+            artists="Artista",
+            album="Álbum",
+            art_url=None,
+            duration_ms=self.durations.get(f"spotify:track:{track_id}", 200_000),
+            explicit=False,
+        )
+
+    @staticmethod
+    def _track(n: int) -> TrackData:
+        tid = f"{n:022d}"
+        return TrackData(
+            track_id=tid,
+            uri=f"spotify:track:{tid}",
+            name=f"Faixa {n}",
+            artists="Artista",
+            album="Álbum",
+            art_url=None,
+            duration_ms=200_000,
+            explicit=False,
+        )

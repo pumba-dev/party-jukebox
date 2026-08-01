@@ -27,7 +27,12 @@ def virar_host(c: TestClient, pin: str | None = None) -> Any:
 
 
 def fila(c: TestClient) -> list[str]:
-    return [i["track"]["name"] for i in c.get("/api/state").json()["queue"]]
+    """Os nomes da fila, na ordem em que vão tocar. Karaokê e faixa vêm do mesmo campo lógico mas
+    de chaves diferentes (união por `kind`), e o teste quer só o título."""
+    return [
+        i["video"]["title"] if i["kind"] == "karaoke" else i["track"]["name"]
+        for i in c.get("/api/state").json()["queue"]
+    ]
 
 
 def semear_historico() -> None:

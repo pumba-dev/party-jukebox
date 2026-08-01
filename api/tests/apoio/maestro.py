@@ -16,7 +16,7 @@ from bq.playback.conductor import Conductor
 from bq.spotify.client import TrackData
 from bq.spotify.device import DeviceResolver
 
-from .faixas import make_track
+from .faixas import make_karaoke, make_track
 from .relogio import FakeClock
 from .spotify import FakeSpotify
 
@@ -59,11 +59,63 @@ def reiniciar(clk: FakeClock, fake: FakeSpotify) -> Conductor:
     return novo
 
 
+def enqueue_karaoke(guest_id: int, n: int, duration_ms: int, when: int) -> str:
+    """Um karaokê na fila. Não recebe o `fake` porque karaokê NÃO passa pelo Spotify — e essa
+    assimetria na assinatura é de propósito: ela lembra quem lê que o caminho é outro."""
+    tid = make_karaoke(n, duration_ms)
+    queue.insert(guest_id, tid, when)
+    return tid
+
+
+def reportar(
+    cond: Conductor,
+    *,
+    play_id: int,
+    state: str = "playing",
+    position_ms: int = 0,
+    tv_id: str = "tv-1",
+) -> bool:
+    """A /tv reportando, sem browser e sem HTTP: a tela vira uma chamada de função.
+
+    É isto que torna a máquina do karaokê testável — e é o principal argumento prático a favor de
+    a ingestão morar no maestro em vez de num singleton de rota.
+    """
+    from bq.core import clock
+    from bq.domain.karaoke import TvReport
+
+    return cond.tv_ingest(
+        TvReport(
+            at_mono=clock.mono_ms(),
+            tv_id=tv_id,
+            play_id=play_id,
+            state=state,
+            position_ms=position_ms,
+        )
+    )
+
+
+async def cantar(cond: Conductor, clk: FakeClock, ms: int, *, play_id: int, step: int = 500) -> None:
+    """Roda o laço COM a /tv reportando a 2 Hz, como ela faria de verdade."""
+    pos = 0
+    for _ in range(ms // step):
+        clk.advance(step)
+        pos += step
+        reportar(cond, play_id=play_id, position_ms=pos)
+        await cond._step()  # noqa: SLF001 — é o que está sob teste
+
+
 def sequestrar(fake: FakeSpotify, uri: str = OUTRA) -> None:
-    """Alguém deu play em outra coisa na mesma conta, por fora do bq."""
+    """Alguém deu play em outra coisa na mesma conta, por fora do bq.
+
+    🔴 `paused = False` junto: dar play DESPAUSA. Sem isto, um sequestro depois de um `pause()`
+    nosso deixava `is_playing=False`, e o cenário que se queria testar — o Spotify tocando por
+    cima — não acontecia. O teste passava sem exercitar nada.
+    """
     fake.playing = uri
     fake.started_wall = fake.clk.wall
     fake.duration = 600_000
+    fake.paused = False
+    fake.paused_at = 0
 
 
 async def sequestro_completo(cond: Conductor, fake: FakeSpotify, clk: FakeClock) -> None:

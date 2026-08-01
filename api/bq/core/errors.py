@@ -42,6 +42,12 @@ STATUS: dict[str, int] = {
     "SPOTIFY_ERROR": 502,
     "SEARCH_BUSY": 503,
     "NOT_FOUND": 404,
+    # 422 e não 503: "desligado nesta festa" não é transiente, e "tente de novo" seria mentira.
+    # Cobre três causas com a mesma resposta — sem YOUTUBE_API_KEY, o host desligou o karaokê, ou
+    # a chave foi recusada pelo Google.
+    "KARAOKE_UNAVAILABLE": 422,
+    "NOT_YOUR_TURN": 403,  # tocou INICIAR na vez de outra pessoa
+    "STALE_TURN": 409,     # a vez já passou — o par de STALE_PLAY, para o turno
 }
 
 

@@ -22,6 +22,17 @@ import asyncio
 
 from ..core import clock, db, log
 from ..domain import guards, queue, tracks
+from ..domain.karaoke import (
+    CHEER_MS,
+    MAX_NOSHOWS,
+    TV_GRACE_MS,
+    TV_LOST_MS,
+    TV_STALE_MS,
+    KaraokePhase,
+    KaraokeTurn,
+    TvReport,
+    outcome_de,
+)
 from ..domain.party import S, party
 from ..domain.play import Play, PlayState
 from ..domain.queue import QueuedItem
@@ -55,6 +66,19 @@ MAX_FAILS_PER_SUGGESTION = 3
 MAX_EXTERNAL_STRIKES = 3
 
 
+class KaraokeStartError(Exception):
+    """Recusa de "iniciar minha vez", já com o código do contrato.
+
+    Carrega o `code` em vez de a rota inferi-lo: a decisão depende do estado sob o lock do
+    maestro, e refazê-la na rota seria decidir contra um estado que já mudou.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+
+
 class Conductor:
     def __init__(self, spotify: SpotifyClient, device: DeviceResolver) -> None:
         self.spotify = spotify
@@ -75,6 +99,21 @@ class Conductor:
         self._last_blocked: tuple[int, guards.BlockedReason | None] | None = None
         self._last_poll_error: str | None = None
         self._last_poll_error_at = 0
+        # A vez no microfone. `None` na esmagadora maioria do tempo — e quando não é, o Spotify
+        # está calado e `_reconcile` sai cedo.
+        self._karaoke: KaraokeTurn | None = None
+        self._tv: TvReport | None = None
+
+    @property
+    def karaoke(self) -> KaraokeTurn | None:
+        return self._karaoke
+
+    @property
+    def tv_fresh(self) -> bool:
+        """Se a /tv deu sinal de vida há pouco. Vai para o /host: sem isto, "o vídeo não começou"
+        e "a /tv não está aberta" parecem o mesmo problema."""
+        r = self._tv
+        return r is not None and clock.mono_ms() - r.at_mono < TV_STALE_MS
 
     @property
     def passive(self) -> bool:
@@ -158,6 +197,11 @@ class Conductor:
             deadlines.append(cur.dispatch_next_at_mono)
         if self._retry_at_mono > now:
             deadlines.append(self._retry_at_mono)
+        k = self._karaoke
+        # Sem isto o turno só avançaria no tick do poll: o "Parabéns!" duraria até 1 s a mais e a
+        # chamada venceria tarde. Congelado, o prazo não conta — ele escorrega.
+        if k is not None and k.frozen_at is None:
+            deadlines.append(k.deadline_mono)
         return max(50, min(deadlines) - now)
 
     async def _step(self) -> None:
@@ -175,21 +219,32 @@ class Conductor:
         # a proteção de RF-26 e o cooldown de RF-23 continuam vencendo em relógio de parede.
         await self._notify_guard_edge()
 
+        # 🔴 ANTES da guarda, pelo mesmo motivo do bloco acima: com a festa pausada ou em modo
+        # passivo o turno não pode VENCER, mas o prazo tem de escorregar junto. Sem isto a pessoa
+        # volta do banheiro e já perdeu a vez que ninguém deixou ela começar.
+        if self._karaoke is not None:
+            self._karaoke.freeze(now, frozen=self._passive or S.paused)
+
         if self._passive or S.paused or now < self._retry_at_mono:
             return
+
+        if self._karaoke is not None:
+            await self._step_karaoke(now)
+            if self._karaoke is not None:
+                return  # turno em curso: nada mais é despachado
 
         cur = self.current
         if cur is None:
             nxt = queue.peek_next()
             if nxt is not None:
-                await self._dispatch(nxt)  # RF-15 / RF-18
+                await self._advance(nxt)  # RF-15 / RF-18
         elif cur.state is PlayState.PLAYING and now >= cur.dispatch_next_at_mono:
             nxt = queue.peek_next()
             # `_end_play` primeiro, sempre: `ux_play_open` só admite um play aberto, e a
             # ordem também é a de 05 §4.1 — fecha, escolhe, e só então o HTTP.
             await self._end_play(cur, "finished")
             if nxt is not None:
-                await self._dispatch(nxt)  # RF-16, antecipado
+                await self._advance(nxt)  # RF-16, antecipado
             else:
                 # Fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
                 await self._go_silent("finished")
@@ -262,6 +317,30 @@ class Conductor:
             )
             return
 
+        if track.is_karaoke:
+            # 🔴 Não há o que readotar: a /tv recarrega no restart (o `bootId` muda, 06 §7) e o
+            # iframe morre com ela. Mandá-la voltar ao segundo X exigiria um canal
+            # servidor→cliente que ADR-009 não tem.
+            #
+            # `DISPATCHING` de propósito, para forçar o ramo `never_started` de `_end_play`: a
+            # `suggestion` volta a `queued` MANTENDO o rank, e a pessoa recupera a vez do começo.
+            # É o espelho exato do truque logo abaixo, que seta PLAYING para forçar o contrário.
+            devolvida = Play(
+                play_id=int(row["id"]),
+                track=track,
+                duration_ms=int(row["duration_ms"]),
+                source=str(row["source"]),
+                suggestion_id=row["suggestion_id"],
+                guest_id=row["guest_id"],
+                nickname=row["nick"],
+                started_at=int(row["started_at"]),
+                state=PlayState.DISPATCHING,
+            )
+            self.current = devolvida
+            _L.info("play=%d era um karaokê; devolvendo a vez de %s à fila", devolvida.play_id, row["nick"])
+            await self._end_play(devolvida, "error")
+            return
+
         play = Play(
             play_id=int(row["id"]),
             track=track,
@@ -312,10 +391,251 @@ class Conductor:
         )
         await self._end_play(play, reason)
 
+    # --- o turno no microfone (RF-43) --------------------------------------------------------
+
+    async def _advance(self, nxt: QueuedItem) -> None:
+        """O ÚNICO lugar que decide entre despachar uma faixa e chamar alguém para cantar.
+
+        Existe para que `_step` não precise saber a diferença: ele escolhe o próximo item e
+        delega. Dois caminhos a partir daqui, e eles não se cruzam mais.
+        """
+        if not nxt.track.is_karaoke:
+            await self._dispatch(nxt)
+            return
+        # 🔴 O Spotify PRECISA calar antes da chamada. A espera dura até 45 s, e sem isto a faixa
+        # anterior continuaria tocando por baixo do nome da pessoa no telão — que é o mesmo
+        # constrangimento que a feature existe para produzir de propósito, só que errado.
+        await self._go_silent("karaoke")
+        await self._open_turn(nxt)
+
+    async def _open_turn(self, item: QueuedItem) -> None:
+        """Chama a pessoa. NÃO abre `play` — ver o docstring de `domain/karaoke.py`."""
+        assert self.current is None, "abrir turno com play aberto: _end_play primeiro"
+        self._karaoke = KaraokeTurn(
+            suggestion_id=item.suggestion_id,
+            guest_id=item.guest_id,
+            nickname=item.nickname,
+            track=item.track,
+            deadline_mono=clock.mono_ms() + S.karaoke_wait_ms,
+        )
+        self._tv = None
+        _L.info(
+            "vez de %s no microfone: %s (espera %d s)",
+            item.nickname,
+            item.track.name,
+            S.karaoke_wait_ms // 1000,
+        )
+        await ws.notify()
+
+    async def _step_karaoke(self, now: int) -> None:
+        """Faz o turno andar. Chamado a cada tick, sob o lock, como todo o resto."""
+        k = self._karaoke
+        if k is None:  # pragma: no cover — o chamador já checou
+            return
+
+        if k.phase is KaraokePhase.CHEERING:
+            if now >= k.deadline_mono:
+                self._karaoke = None
+                self._tv = None
+                # 🔴 NÃO despacha aqui. Voltar para `_step` com `_karaoke = None` faz o fluxo
+                # normal escolher o próximo — um despacho a partir daqui seria um segundo lugar
+                # que decide o que toca.
+                await ws.notify()
+            return
+
+        if k.phase is KaraokePhase.WAITING:
+            # A sugestão saiu da fila durante a própria chamada — a pessoa se arrependeu, ou o
+            # host removeu. Derruba o turno na hora em vez de deixar a sala em silêncio até o
+            # prazo vencer, e sem contar falta: ninguém deixou de vir.
+            dono = queue.owner_of(k.suggestion_id)
+            if dono is None or dono[1] != "queued":
+                _L.info("a vez de %s saiu da fila antes de começar", k.nickname)
+                self._karaoke = None
+                self._tv = None
+                await ws.notify()
+                return
+            if now >= k.deadline_mono:
+                await self._no_show(k, now)
+            return
+
+        # SINGING: o servidor é dono do relógio; a telemetria só refina.
+        cur = self.current
+        if cur is None:  # pragma: no cover — defensivo: `_end_play` já teria virado CHEERING
+            self._karaoke = None
+            return
+
+        r = self._tv
+        mudo = r is None or now - r.at_mono > TV_LOST_MS
+        if mudo and now - cur.dispatched_at_mono > TV_LOST_MS:
+            # 🔴 Ausência, e NÃO "acabou". A /tv fechou, o kiosk caiu, o Wi-Fi dela morreu. Entra
+            # por uma porta diferente do `ended`, que é um relatório RECEBIDO — os dois nunca se
+            # confundem no código, e é a mesma lição de `poll.ok == False` ≠ "nada tocando".
+            _L.warning("play=%s: a /tv está muda há %d s; encerrando a vez", cur.play_id, TV_LOST_MS // 1000)
+            await self._end_play(cur, "error")
+            return
+
+        if now >= k.deadline_mono:
+            # Teto duro. Só chega aqui um vídeo que reporta `playing` sem andar — e aí `finished`
+            # é a leitura certa, porque o tempo do vídeo passou.
+            _L.info("play=%s: teto do vídeo alcançado", cur.play_id)
+            await self._end_play(cur, "finished")
+
+    async def _no_show(self, k: KaraokeTurn, now: int) -> None:
+        """Chamamos e ninguém veio.
+
+        1ª falta manda para o FIM da fila; 2ª tira. "Fui ao banheiro" é o caso comum e perder a
+        música por isso é punição que a sala não entende — mas sem teto, uma sugestão órfã (a
+        pessoa foi embora) volta a ser oferecida a cada N músicas, e cada oferta são 45 s de
+        silêncio.
+        """
+        faltas = queue.mark_noshow(k.suggestion_id, clock.wall_ms())
+        if faltas >= MAX_NOSHOWS:
+            queue.desiste_por_falta(k.suggestion_id)
+            _L.info("%s faltou %d vezes; tirei da fila", k.nickname, faltas)
+        else:
+            queue.send_to_back(k.suggestion_id)
+            _L.info("%s não veio cantar; mandei para o fim da fila", k.nickname)
+        k.to_cheering("no_show", now)
+        await ws.notify()
+
+    async def karaoke_start(self, *, suggestion_id: int, guest_id: int | None) -> Play:
+        """A pessoa tocou INICIAR no celular. `guest_id=None` = o host iniciando por ela.
+
+        Levanta `KaraokeStartError` com o código do contrato; a rota traduz. Fica aqui e não na
+        rota porque a decisão depende do estado sob o lock — checar na rota seria checar contra um
+        estado que pode mudar entre a leitura e o `_open`.
+        """
+        async with self._lock:
+            k = self._karaoke
+            if k is None or k.phase is not KaraokePhase.WAITING:
+                raise KaraokeStartError("STALE_TURN", "Essa vez já passou.")
+            if k.suggestion_id != suggestion_id:
+                raise KaraokeStartError("STALE_TURN", "Essa vez já passou.")
+            if guest_id is not None and guest_id != k.guest_id:
+                raise KaraokeStartError("NOT_YOUR_TURN", f"É a vez de {k.nickname}. Espere a sua.")
+            # 🔴 A sugestão pode ter saído da fila entre a chamada e este toque: a pessoa se
+            # arrependeu, ou o host removeu. Abrir um play sobre ela deixaria uma linha órfã no
+            # histórico e um invariante furado. `_step_karaoke` também derruba o turno nesse caso,
+            # mas ele roda a 1 Hz — e a corrida acontece DENTRO desse segundo.
+            dono = queue.owner_of(k.suggestion_id)
+            if dono is None or dono[1] != "queued":
+                raise KaraokeStartError("STALE_TURN", "Essa vez já passou.")
+
+            if not await self._open(
+                track=k.track,
+                source="guest",
+                suggestion_id=k.suggestion_id,
+                guest_id=k.guest_id,
+                nickname=k.nickname,
+            ):  # pragma: no cover — `_open` de karaokê não fala com o Spotify e não falha
+                raise KaraokeStartError("STALE_TURN", "Não consegui começar a sua vez.")
+
+            cur = self.current
+            assert cur is not None
+            k.phase = KaraokePhase.SINGING
+            k.play_id = cur.play_id
+            k.ceiling_anchored = False
+            # Teto PROVISÓRIO, generoso: vale só até a /tv reportar que o vídeo começou de fato.
+            # A margem extra é o anúncio de pré-roll de quem não está logado numa conta Premium —
+            # se o vídeo nem começar, `TV_LOST_MS` encerra antes disto de qualquer jeito.
+            k.deadline_mono = clock.mono_ms() + k.track.duration_ms + 2 * TV_GRACE_MS
+            k.frozen_at = None
+            _L.info("play=%d %s começou a cantar", cur.play_id, k.nickname)
+            await ws.notify()
+            return cur
+
+    def tv_ingest(self, r: TvReport) -> bool:
+        """A /tv reportou. SÍNCRONO e sem lock — ver o 🔴 abaixo. Devolve se foi aceito.
+
+        🔴 Sem o lock de propósito. `_step` o segura durante uma chamada ao Spotify de 150–400 ms,
+        e tomá-lo aqui faria a /tv esperar isso a cada relatório, a noite inteira. Isto é um único
+        assign de dataclass imutável num app de UM event loop, sem `await` no meio: não há
+        intercalação possível. A máquina de estados anda em `_step`, sob o lock, como todo o
+        resto — a rota só deposita o relatório e chama `wake()`.
+        """
+        k = self._karaoke
+        if k is None or k.phase is not KaraokePhase.SINGING or k.play_id != r.play_id:
+            return False
+        self._tv = r
+        cur = self.current
+        if cur is None:  # pragma: no cover
+            return False
+        if r.state == "playing":
+            # A âncora da POSIÇÃO segue todo relatório: é o que dá barra de progresso ao celular,
+            # que não tem iframe. A âncora vem do vídeo e não do toque em INICIAR — entre os dois
+            # há buffer e possivelmente anúncio, e ancorar no toque faria a barra acabar antes.
+            self._anchor(cur, r.position_ms)
+            cur.state = PlayState.PLAYING
+            if not k.ceiling_anchored:
+                # 🔴 O TETO, porém, é fixado UMA vez — aqui, no primeiro `playing` de verdade.
+                # Movê-lo a cada relatório faz um vídeo travado (mesma posição, sempre) empurrar o
+                # prazo para sempre, e a vez não acaba nunca. Fixado aqui e não no INICIAR, o
+                # anúncio de pré-roll não come o fim da música.
+                k.ceiling_anchored = True
+                k.deadline_mono = (
+                    clock.mono_ms() + max(0, cur.duration_ms - r.position_ms) + TV_GRACE_MS
+                )
+        elif r.state == "paused":
+            cur.start_pos_ms = r.position_ms
+            cur.anchor_mono = clock.mono_ms()
+            cur.state = PlayState.PAUSED
+        return True
+
+    async def tv_finished(self, play_id: int, *, erro: str | None = None) -> bool:
+        """`ended` ou `error` da /tv: uma AFIRMAÇÃO, ao contrário do silêncio.
+
+        `Poll` não sabe dizer isto — no Spotify o fim é sempre inferido de uma ausência — e é por
+        isso que a telemetria da /tv não é um `Poll`.
+        """
+        async with self._lock:
+            k = self._karaoke
+            cur = self.current
+            if k is None or k.phase is not KaraokePhase.SINGING or k.play_id != play_id:
+                return False
+            if cur is None:  # pragma: no cover
+                return False
+            if erro is not None:
+                _L.warning("play=%d: a /tv não conseguiu tocar o vídeo (%s)", play_id, erro)
+                await self._end_play(cur, "error")
+            else:
+                await self._end_play(cur, "finished")
+            return True
+
+    async def cancel_turn(self, *, penalize: bool) -> bool:
+        """O host encerra a vez. `penalize=False` = "essa pessoa foi embora", sem contar falta."""
+        async with self._lock:
+            k = self._karaoke
+            if k is None:
+                return False
+            if k.phase is KaraokePhase.SINGING and self.current is not None:
+                await self._end_play(self.current, "host_skip")
+                return True
+            if penalize:
+                await self._no_show(k, clock.mono_ms())
+            else:
+                # 🔴 Esfria e manda para o fim. Sem as duas coisas, a sugestão volta a uma fila
+                # que a reoferece no TICK SEGUINTE: a mesma pessoa é chamada de novo um segundo
+                # depois, e de novo, em laço — o botão parece quebrado e a sala fica olhando o
+                # mesmo nome piscar no telão. `esfria` e não `mark_noshow` porque duas passadas do
+                # host não podem tirar a vez de ninguém: quem decidiu foi ele, não a ausência dela.
+                queue.esfria(k.suggestion_id, clock.wall_ms())
+                queue.send_to_back(k.suggestion_id)
+                self._karaoke = None
+                self._tv = None
+                _L.info("vez de %s passada pelo host; volta para o fim da fila", k.nickname)
+                await ws.notify()
+            return True
+
     # --- despacho -------------------------------------------------------------------------
 
     async def _dispatch(self, item: QueuedItem) -> None:
         """Despacho normal: a próxima da fila, de um convidado."""
+        # 🔴 Cinto e suspensórios até M3.3, quando `_advance` passa a separar os dois caminhos.
+        # Sem isto, um karaokê que escapasse da ordenação viraria um `start_playback` com a URI
+        # `youtube:<id>` — o Spotify devolveria 404, `_note_failure` tentaria três vezes, e a
+        # sugestão sairia da fila marcada como `skipped`. Falha silenciosa e cara: a pessoa perde
+        # a vez e o log fala de device, não de provedor.
+        assert not item.track.is_karaoke, "karaokê não passa por _dispatch (03 §4.4)"
         if not await self._open(
             track=item.track,
             source="guest",
@@ -347,10 +667,17 @@ class Conductor:
         """
         assert self.current is None, "abrir play com outro aberto: _end_play primeiro (03 §4.6)"
 
-        dev = await self.device.ensure()
-        if dev is None:
-            _L.warning("device %r não encontrado; nada a despachar", self.device.name)
-            return False
+        # 🔴 Karaokê não fala com o Spotify: nem device, nem `PUT /me/player/play`. O `play` é uma
+        # linha normal — é o que dá votos, /historico, `heard_ms` e `_end_play` de graça — mas
+        # quem toca é o iframe da /tv. Passar por `device.ensure()` aqui faria a vez de alguém
+        # depender de o app desktop estar aberto, o que não tem nada a ver.
+        karaoke = track.is_karaoke
+        dev = None
+        if not karaoke:
+            dev = await self.device.ensure()
+            if dev is None:
+                _L.warning("device %r não encontrado; nada a despachar", self.device.name)
+                return False
 
         with db.tx():
             cur = db.run(
@@ -389,10 +716,18 @@ class Conductor:
         )
         await ws.notify()
 
+        if karaoke:
+            # Quem confirma é a /tv, com o evento `PLAYING` real do iframe — o mesmo papel que o
+            # poller tem para o Spotify. Fica `DISPATCHING` até lá, e `_reconcile` não encosta
+            # neste play (a guarda do karaokê sai antes).
+            _L.info("play=%d karaokê %s (%s) — esperando a /tv", play_id, track.name, nickname)
+            return True
+
         if not await self._start(track.uri):
             await self._end_play(self.current, "error")
             return False
 
+        assert dev is not None
         _L.info(
             "despacho play=%d %s — %s (%s) para %s",
             play_id,
@@ -519,6 +854,28 @@ class Conductor:
         if reason in ("finished", "skip_vote", "host_skip"):
             party.external_strikes = 0
 
+        # 🔴 O turno morre — ou vira "Parabéns" — DENTRO da saída única, e não em cada chamador.
+        #
+        # Assim skip por voto, host_skip, force-play, erro e fim natural desmontam a vez de graça,
+        # sem um `self._karaoke = None` espalhado por cinco lugares. É o mesmo argumento que faz
+        # esta função existir.
+        #
+        # E é aqui que a série de mudanças externas quebra: `external_strikes = 0` acima cobre os
+        # três motivos limpos, mas um karaokê que terminou de qualquer jeito significa que NÓS
+        # calamos o Spotify de propósito e vamos redespachar agora. Sem zerar, a não-confirmação
+        # do próximo despacho — o device ficou ocioso durante a música inteira — soma strike, e em
+        # três karaokês a festa entra em modo passivo por uma briga que nunca houve.
+        k = self._karaoke
+        if k is not None and k.play_id == cur.play_id:
+            party.external_strikes = 0
+            if reason == "host_force":
+                # O host quer OUTRA coisa agora; um "Parabéns" por cima brigaria com a faixa nova.
+                self._karaoke = None
+                self._tv = None
+            else:
+                k.to_cheering(outcome_de(reason), clock.mono_ms())
+            self.device.invalidate()  # o device ficou ocioso durante o karaokê; re-resolve antes
+
         self.current = None
         await ws.notify()
         _L.info(
@@ -547,6 +904,29 @@ class Conductor:
             return
 
         pb = poll.playback
+
+        # 🔴 A GUARDA DO KARAOKÊ, e é a que evita o pior modo de falha da feature.
+        #
+        # Com um turno em curso o Spotify está calado DE PROPÓSITO, e o que ele reporta não é
+        # referência para nada. Sem esta saída, a tabela abaixo somaria `external_strikes` a cada
+        # tick — e em três karaokês a festa entraria em MODO PASSIVO, parando a fila com o /tv
+        # acusando "alguém está controlando o Spotify por fora". Mentira, e causada por nós.
+        #
+        # E ela faz mais uma coisa, que é o reconciliador de silêncio: se o Spotify voltou a
+        # tocar sozinho — o `pause()` perdeu a corrida com o fim natural da faixa, ou o app
+        # desktop emendou uma "similar" — a sala ouviria a música por baixo de quem está
+        # cantando. Um `pause()` por tick, a 1 Hz, no poll que já existe. Nunca soma strike:
+        # quem pôs o Spotify nesse estado fomos nós, ao calá-lo.
+        if self._karaoke is not None:
+            if pb is not None and pb.is_playing:
+                try:
+                    await self.spotify.pause()
+                except SpotifyError as e:
+                    _L.info("silêncio do karaokê: pause recusado (%s)", e)
+                else:
+                    _L.info("karaokê: o Spotify voltou a tocar sozinho; calei de novo")
+            return
+
         cur = self.current
         if cur is None:
             # Nada nosso em curso. Se o Spotify estiver tocando outra coisa, o próximo
@@ -688,14 +1068,33 @@ class Conductor:
         `_end_play`, `self.current is None` e a guarda STALE_PLAY recusa os atrasados.
         """
         async with self._lock:
+            # 🔴 ANTES da ordem normativa, porque ela é sobre PLAYS e a chamada não tem play.
+            # Sem este ramo, `cur is None` fazia o botão de pular do /host ser um no-op durante a
+            # espera: o host aperta no pânico — a pessoa não veio, a sala está em silêncio — e
+            # nada acontece, sem erro nenhum na tela. É o único controle de emergência que existe.
+            k = self._karaoke
+            if k is not None and k.phase is not KaraokePhase.SINGING:
+                self._karaoke = None
+                self._tv = None
+                _L.info("vez de %s pulada (%s)", k.nickname, reason)
+                await ws.notify()
+                nxt = queue.peek_next()
+                if nxt is not None:
+                    await self._advance(nxt)
+                return
+
             cur = self.current
             if cur is None:
                 return
             party.skip_cooldown_until = clock.mono_ms() + S.skip_cooldown_ms  # 1. cooldown PRIMEIRO
             await self._end_play(cur, reason)  # 2. fecha; current = None
             nxt = queue.peek_next()  # 3. escolhe
+            if self._karaoke is not None:
+                # Pulamos um karaokê: `_end_play` virou o turno para "Parabéns", e é ele que
+                # decide quando a fila anda. Despachar aqui atropelaria a tela de fim.
+                return
             if nxt is not None:
-                await self._dispatch(nxt)  # 4. só AGORA o HTTP
+                await self._advance(nxt)  # 4. só AGORA o HTTP
             else:
                 await self._go_silent(reason)  # RF-17: pulou a última, então o som para
 
@@ -715,8 +1114,16 @@ class Conductor:
         async with self._lock:
             cur = self.current
             if cur is not None:
-                # `_end_play('host_force')` devolve a sugestão à fila com rank = -1
+                # `_end_play('host_force')` devolve a sugestão à fila com rank = -1 — e, para um
+                # karaokê, também desmonta o turno sem "Parabéns" (o host quer outra coisa AGORA).
                 await self._end_play(cur, "host_force")
+            elif self._karaoke is not None:
+                # Chamada ou "Parabéns" em curso e o host forçou uma faixa: a vez cai sem contar
+                # falta. Foi decisão do host, não ausência da pessoa.
+                k = self._karaoke
+                self._karaoke = None
+                self._tv = None
+                _L.info("vez de %s cancelada por force-play", k.nickname)
             ok = await self._open(
                 track=track,
                 source="host_force",
@@ -778,11 +1185,17 @@ class Conductor:
     async def resume(self) -> None:
         async with self._lock:
             S.write("paused", "0")
-            try:
-                await self.spotify.resume()
-            except SpotifyError as e:
-                _L.warning("resume recusado pelo Spotify: %s", e)
-                party.note_error(f"resume: {e}")
+            # 🔴 Durante um karaokê o Spotify está calado DE PROPÓSITO, e `resume()` é um
+            # `PUT /me/player/play` SEM corpo — o desktop retomaria a última faixa por cima de
+            # quem está cantando. E como `self.current` aponta para o play do karaokê (ou é
+            # `None`), nada detectaria: o `_reconcile` sai cedo pela guarda do karaokê. O sintoma
+            # seria a música voltando sozinha no meio do refrão, sem uma linha no log.
+            if self._karaoke is None:
+                try:
+                    await self.spotify.resume()
+                except SpotifyError as e:
+                    _L.warning("resume recusado pelo Spotify: %s", e)
+                    party.note_error(f"resume: {e}")
             cur = self.current
             if cur is not None and cur.state is PlayState.PAUSED:
                 cur.state = PlayState.PLAYING

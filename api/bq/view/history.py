@@ -18,7 +18,7 @@ from ..models import HistoryItem, HistoryOut, HistorySummary, Track
 
 _SELECT = """
 SELECT p.id, p.started_at, p.end_reason, p.heard_ms, p.source, p.duration_ms,
-       t.id AS tid, t.name, t.artists, t.album, t.art_url,
+       t.id AS tid, t.name, t.artists, t.album, t.art_url, t.provider,
        g.nickname AS nick
   FROM play p
   JOIN track t ON t.id = p.track_id
@@ -58,6 +58,10 @@ def build(*, with_voters: bool) -> HistoryOut:
                 album=str(r["album"]),
                 art_url=r["art_url"],
                 duration_ms=int(r["duration_ms"]),
+                # Karaokês entram na mesma linha do tempo, com quem cantou, `heard_ms` real e
+                # votos — de graça, porque um karaokê é uma linha de `play` como qualquer outra.
+                # A tela usa isto só para marcar o 🎤.
+                provider=r["provider"],
             ),
             started_at_ms=int(r["started_at"]),
             suggested_by=r["nick"],

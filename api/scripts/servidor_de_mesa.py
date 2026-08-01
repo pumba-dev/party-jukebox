@@ -56,6 +56,10 @@ os.environ["LOG_PATH"] = str(_TMP / "mesa.log")
 # imprime quando falha. SSID vazio também some com o QR de Wi-Fi da /tv, que aqui não serve a nada.
 os.environ["WIFI_SSID"] = ""
 os.environ["WIFI_PASSWORD"] = ""
+# Qualquer string não vazia liga o karaokê: `bq/app.py` só olha se a chave EXISTE, e quem responde
+# é o duplo abaixo. Nunca a chave real — este repositório é público e a chave viaja na query
+# string, que é justamente o que o `scrub()` do cliente existe para não deixar vazar no log.
+os.environ["YOUTUBE_API_KEY"] = "mesa-youtube-key"
 
 from bq.core.config import settings  # noqa: E402
 
@@ -70,10 +74,15 @@ if _db.is_relative_to(API) or _db.name.startswith("party.db"):
 # `from .spotify.client import SpotifyClient` e liga o nome no próprio import: trocar depois não
 # alcançaria o `Conductor` nem o `DeviceResolver`, que recebem o cliente por parâmetro no lifespan.
 import bq.spotify.client as _cliente  # noqa: E402
+import bq.youtube.client as _yt  # noqa: E402
 
 from spotify_de_mesa import SpotifyDeMesa  # noqa: E402
+from youtube_de_mesa import YouTubeDeMesa  # noqa: E402
 
 _cliente.SpotifyClient = SpotifyDeMesa  # type: ignore[misc, assignment]
+# Mesma regra, mesma armadilha: `bq/app.py` faz `from .youtube.client import YouTubeClient` e liga
+# o nome no import dele. Trocar depois de `from bq.app import app` não alcançaria o lifespan.
+_yt.YouTubeClient = YouTubeDeMesa  # type: ignore[misc, assignment]
 
 from bq.app import app  # noqa: E402
 

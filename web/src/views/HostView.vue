@@ -78,7 +78,17 @@ const q = ref('')
 const results = ref<SearchResult[]>([])
 
 const tocando = computed(() => (party.player.type === 'playing' ? party.player : null))
-const faixa = computed(() => (party.player.type === 'idle' ? null : party.player.track))
+const faixa = computed(() => party.faixa)
+
+/** A vez no microfone, em qualquer das três fases. O host é a única pessoa que pode desatolar
+ * isto — a /tv não tem botão (RF-38) e o celular da pessoa pode ter morrido. */
+const karaoke = computed(() => party.karaoke)
+/** A fase de CHAMADA, estreitada aqui e não no template: `suggestionId` só existe nela, e um
+ * `karaoke!.suggestionId` dentro de um `@click` não é estreitado pelo `v-if` do próprio botão. */
+const chamando = computed(() =>
+  party.karaoke?.type === 'karaoke_waiting' ? party.karaoke : null,
+)
+const saudeK = computed(() => saude.value?.karaoke ?? null)
 
 // Saúde: tipado desde o pydantic (ADR-006), sem nenhum `as`. Eram seis, escritos à mão.
 const cond = computed(() => saude.value?.conductor ?? null)
@@ -92,7 +102,11 @@ const invariantesRuins = computed(() =>
 /** O `●` da aba Saúde. `ruim` é "a festa parou"; `aviso` é "degradou mas ainda toca". */
 const alertaSaude = computed<'aviso' | 'ruim' | undefined>(() => {
   const c = cond.value
+  const k = saudeK.value
   if (c?.passive || invariantesRuins.value.length) return 'ruim'
+  // Uma vez em andamento sem /tv aberta é a festa parada em silêncio: ninguém vê a chamada, o
+  // vídeo não tem onde tocar, e a única pista visível é uma tela preta na sala.
+  if (k?.phase && !k.tvOnline) return 'ruim'
   if (!device.value || poll.value?.ok === false || c?.restarts) return 'aviso'
   return undefined
 })
@@ -199,14 +213,21 @@ async function tocarAgora(t: SearchResult): Promise<void> {
 }
 
 /** RF-24 · efeito imediato, sem restart. O /tv passa a dizer `n de 4` na mesma hora. */
-async function ajustar(key: Chave, valor: number): Promise<void> {
+// 🔴 Genérica sobre a chave, e não `(key: Chave, valor: number | boolean)`. Com a assinatura
+// larga, `karaokeOnly: 300000` e `skipVotesNeeded: true` compilariam — o servidor recusaria com
+// 422, mas o erro é do tipo que se descobre na festa. Aqui `valor` é o tipo DAQUELA chave.
+async function ajustar<K extends Chave>(
+  key: K,
+  valor: NonNullable<components['schemas']['SettingsPatch'][K]>,
+): Promise<void> {
   // 🔴 Passa por `acao()`. Antes não passava: sem try/catch, um PATCH recusado era uma promise
   // rejeitada sem tratamento e o controle voltava sozinho, sem explicação nenhuma na tela.
   //
   // E o `CampoSelect` mostra `cfg[key]`, nunca um valor local: se o PATCH falhar, o campo volta ao
   // valor do servidor sozinho. A tela nunca exibe um número que não está em vigor.
   salvando.value = key
-  const patch: Partial<Record<Chave, number>> = { [key]: valor }
+  const patch: components['schemas']['SettingsPatch'] = {}
+  patch[key] = valor
   await acao('regras', async () => {
     cfg.value = await api.host.patch(patch)
   })
@@ -216,6 +237,17 @@ async function ajustar(key: Chave, valor: number): Promise<void> {
   window.setTimeout(() => {
     if (salvando.value === key) salvando.value = null
   }, 500)
+}
+
+/** O host começa a vez pela pessoa: o celular dela morreu, ou ela já está de pé na frente da TV.
+ *
+ * 🔴 Função e não um arrow no `@click`: o `v-if="chamando"` do botão NÃO estreita `chamando`
+ * dentro do handler — o vue-tsc reclama, e com razão, porque o clique pode chegar num tick em que
+ * a vez já virou. Aqui a leitura e o uso são a mesma expressão. */
+async function comecarPelaPessoa(): Promise<void> {
+  const vez = chamando.value
+  if (!vez) return
+  await acao('fila', () => api.host.karaokeStart(vez.suggestionId))
 }
 
 async function limparFila(): Promise<void> {
@@ -358,6 +390,67 @@ const janela = computed(() => {
       <div v-show="aba === 'fila'" class="flex flex-col gap-4">
         <p v-if="erro?.aba === 'fila'" class="text-warn text-sm">{{ erro.texto }}</p>
 
+        <!-- A vez no microfone, no TOPO da aba. Quando existe, é a coisa mais urgente que esta
+             tela tem: a sala está em silêncio olhando para o nome de alguém, e o host é a única
+             pessoa que pode desatolar — a /tv não tem botão (RF-38) e o celular da pessoa pode
+             ter descarregado. -->
+        <section
+          v-if="karaoke"
+          class="border-mic bg-mic/10 rounded-2xl border-2 p-4"
+        >
+          <p class="text-mic text-xs font-semibold tracking-widest uppercase">
+            {{
+              karaoke.type === 'karaoke_waiting'
+                ? 'Chamando no microfone'
+                : karaoke.type === 'karaoke_playing'
+                  ? 'Cantando agora'
+                  : 'Acabou de cantar'
+            }}
+          </p>
+          <p class="mt-1 truncate font-semibold">🎤 {{ karaoke.video.title }}</p>
+          <p class="text-mic truncate text-sm">{{ karaoke.singer }}</p>
+
+          <p v-if="chamando" class="text-mute mt-1 text-sm tabular-nums">
+            volta para a fila em {{ faltam(chamando.waitingUntilMs, now) }}
+          </p>
+          <!-- 🔴 O aviso que separa dois problemas idênticos na tela preta. Sem ele o host olha o
+               monitor apagado e não sabe se o kiosk caiu ou se o autoplay foi bloqueado — e o
+               conserto é outro em cada caso. -->
+          <p v-if="saudeK && !saudeK.tvOnline" class="text-hot mt-2 text-sm font-semibold">
+            Nenhuma /tv está aberta — ninguém está vendo a chamada. Abra {{ party.joinUrl }}/tv.
+          </p>
+          <p
+            v-else-if="karaoke.type === 'karaoke_playing' && saudeK && !saudeK.tvReporting"
+            class="text-warn mt-2 text-sm"
+          >
+            A /tv está aberta mas o vídeo não anda — provavelmente o autoplay foi bloqueado. Na
+            máquina da TV, aperte a barra de espaço.
+          </p>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              v-if="chamando"
+              class="bg-mic no-select rounded-xl px-4 py-2 font-bold text-black disabled:opacity-40"
+              :disabled="ocupado"
+              @click="comecarPelaPessoa"
+            >
+              Começar por ela
+            </button>
+            <button
+              v-if="karaoke.type !== 'karaoke_cheering'"
+              class="border-line no-select rounded-xl border px-4 py-2 font-semibold disabled:opacity-40"
+              :disabled="ocupado"
+              @click="acao('fila', () => api.host.karaokeCancel())"
+            >
+              {{ chamando ? 'Passar a vez' : 'Encerrar a vez' }}
+            </button>
+          </div>
+          <p v-if="chamando" class="text-mute mt-2 text-xs">
+            "Começar por ela" é para quando a pessoa já está de pé com o microfone e o celular não
+            ajuda. "Passar a vez" não conta falta — quem decidiu foi você.
+          </p>
+        </section>
+
         <!-- tocando + quem votou (RF-25) -->
         <section class="bg-card border-line rounded-2xl border p-4">
           <div v-if="faixa" class="flex items-baseline justify-between gap-3">
@@ -389,9 +482,13 @@ const janela = computed(() => {
           </p>
 
           <div class="mt-3 flex flex-wrap gap-2">
+            <!-- 🔴 Habilitado durante um karaokê também. `conductor.skip()` trata as três fases
+                 antes da ordem normativa de 05 §4.1, e este é o botão que a mão do host procura
+                 no pânico — desabilitá-lo com `!faixa` fazia dele um no-op exatamente quando a
+                 sala está em silêncio olhando para o nome de alguém. -->
             <button
               class="border-line no-select rounded-xl border px-4 py-2 font-semibold disabled:opacity-40"
-              :disabled="ocupado || !faixa"
+              :disabled="ocupado || (!faixa && !karaoke)"
               @click="acao('fila', api.host.skip)"
             >
               Pular
@@ -485,12 +582,23 @@ const janela = computed(() => {
               v-for="(item, i) in party.queue"
               :key="item.suggestionId"
               class="flex items-center gap-2 rounded-lg py-0.5 pl-1"
+              :class="item.blockedByMode ? 'opacity-40' : ''"
             >
-              <span class="text-accent w-3 shrink-0 text-xs">{{ i === 0 ? '▸' : '' }}</span>
+              <span class="text-accent w-3 shrink-0 text-xs">
+                {{ i === 0 && !item.blockedByMode ? '▸' : '' }}
+              </span>
               <span class="min-w-0 flex-1 truncate text-sm">
-                {{ item.track.name }}
+                <span v-if="item.kind === 'karaoke'" class="text-mic">🎤</span>
+                {{ item.kind === 'karaoke' ? item.video.title : item.track.name }}
                 <span class="text-mute">— {{ item.suggestedBy }}</span>
-                <span v-if="item.wasInterrupted" class="text-warn"> ↩</span>
+                <span v-if="item.kind === 'track' && item.wasInterrupted" class="text-warn">
+                  ↩</span
+                >
+                <!-- Por que esta não vai tocar. O host é quem pode agir (mudar o modo ou remover),
+                     então é a única tela que diz o motivo em vez de só esmaecer. -->
+                <span v-if="item.blockedByMode" class="text-mute text-xs">
+                  · {{ item.kind === 'karaoke' ? 'karaokê desligado' : 'só karaokê' }}
+                </span>
               </span>
               <!-- 🔴 `size-11` = 44 px, o mínimo de alvo de toque, e `gap-2` entre eles. Eram
                    `px-2 text-lg` (perto de 28 px) e colados: o vizinho do `↑` é o `✕`, que não tem
@@ -627,6 +735,47 @@ const janela = computed(() => {
               <dd class="text-warn">{{ saude.deviceError }}</dd>
             </template>
           </dl>
+
+          <!-- O karaokê. Fica no Detalhe e não nos KPIs porque, na maior parte da noite, ele não
+               responde "por que não está tocando" — mas quando responde, responde sozinho. -->
+          <template v-if="saudeK">
+            <p class="text-mute mt-4 text-xs font-semibold tracking-widest uppercase">Karaokê</p>
+            <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+              <dt class="text-mute">ligado</dt>
+              <dd :class="saudeK.enabled ? '' : 'text-mute'">
+                {{ saudeK.enabled ? 'sim' : 'não' }}
+              </dd>
+              <dt class="text-mute">a /tv está aberta</dt>
+              <dd :class="saudeK.tvOnline ? '' : 'text-warn'">
+                {{ saudeK.tvOnline ? 'sim' : 'nenhuma' }}
+              </dd>
+              <template v-if="saudeK.phase">
+                <dt class="text-mute">vez de</dt>
+                <dd class="text-mic">{{ saudeK.singer }} · {{ saudeK.phase }}</dd>
+                <dt class="text-mute">a /tv está reportando o vídeo</dt>
+                <dd :class="saudeK.tvReporting ? '' : 'text-warn'">
+                  {{ saudeK.tvReporting ? 'sim' : 'não' }}
+                </dd>
+              </template>
+              <!-- 🔴 A cota é o recurso que mata a busca no meio da festa e é invisível em
+                   qualquer outro lugar: `search.list` custa 100 de 10.000 por dia, então são ~99
+                   buscas não cacheadas para a festa inteira. Estourou, não volta até meia-noite
+                   no Pacífico. -->
+              <dt class="text-mute">cota do YouTube hoje</dt>
+              <dd
+                class="tabular-nums"
+                :class="
+                  saudeK.quotaUsed >= 8_000
+                    ? 'text-hot'
+                    : saudeK.quotaUsed >= 5_000
+                      ? 'text-warn'
+                      : ''
+                "
+              >
+                {{ saudeK.quotaUsed }} de 9.000
+              </dd>
+            </dl>
+          </template>
 
           <div class="mt-3 flex flex-wrap gap-2">
             <button

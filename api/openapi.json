@@ -289,6 +289,218 @@
         }
       }
     },
+    "/api/karaoke/search": {
+      "get": {
+        "tags": [
+          "karaokê"
+        ],
+        "summary": "Search",
+        "operationId": "search_api_karaoke_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KaraokeSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/karaoke/start": {
+      "post": {
+        "tags": [
+          "karaokê"
+        ],
+        "summary": "Start",
+        "description": "A pessoa tocou INICIAR no próprio celular.\n\nA decisão inteira mora no maestro, sob o lock: checar aqui seria checar contra um estado que\npode mudar entre a leitura e o `_open`. Esta função só traduz a recusa para o contrato.",
+        "operationId": "start_api_karaoke_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KaraokeStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KaraokeStartOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tv/claim": {
+      "post": {
+        "tags": [
+          "tv"
+        ],
+        "summary": "Tv Claim",
+        "description": "Bate a cada 10 s e diz se esta aba é dona do áudio. Ver `PartyRuntime.tv_claim`.\n\nÉ também a única evidência de que existe uma `/tv` aberta ANTES do primeiro karaokê — a\ntelemetria do vídeo só existe durante uma música, e o host precisa saber antes de a sala ficar\nolhando para uma tela preta.",
+        "operationId": "tv_claim_api_tv_claim_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TvClaimIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TvClaimOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tv/release": {
+      "post": {
+        "tags": [
+          "tv"
+        ],
+        "summary": "Tv Release",
+        "description": "A /tv está fechando. Chegada por `navigator.sendBeacon`, que não espera resposta.\n\n`owner` no corpo devolvido significa \"você ainda era o dono quando isto chegou\" — ninguém lê,\ne ele existe para reusar `TvClaimOut` em vez de inventar um envelope de uma linha.",
+        "operationId": "tv_release_api_tv_release_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TvClaimIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TvClaimOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tv/report": {
+      "post": {
+        "tags": [
+          "tv"
+        ],
+        "summary": "Tv Report",
+        "description": "1 Hz enquanto canta, mais um imediato a cada mudança de estado do player.\n\n`ended` e `error` são AFIRMAÇÕES e fecham a vez na hora; `playing`/`paused` só reancoram. O\nsilêncio — a ausência de relatório — entra por outra porta (o teto do maestro) e nunca vira\n\"acabou\".",
+        "operationId": "tv_report_api_tv_report_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TvReportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TvReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/state": {
       "get": {
         "tags": [
@@ -615,6 +827,96 @@
         }
       }
     },
+    "/api/host/karaoke/start": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Karaoke Start",
+        "description": "O host começa a vez pela pessoa: o celular dela morreu, ou ela já está de pé na frente da\nTV com o microfone. Espelha o par `DELETE /api/suggestions/{id}` × o do host.",
+        "operationId": "host_karaoke_start_api_host_karaoke_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KaraokeStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KaraokeStartOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/karaoke/cancel": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Karaoke Cancel",
+        "description": "Encerra a vez em curso. `penalize=false` (o default) é o botão \"essa pessoa foi embora\":\nnão conta falta, porque quem decidiu foi o host e não a ausência dela.",
+        "operationId": "host_karaoke_cancel_api_host_karaoke_cancel_post",
+        "parameters": [
+          {
+            "name": "penalize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Penalize"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Host Karaoke Cancel Api Host Karaoke Cancel Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/host/reactivate": {
       "post": {
         "tags": [
@@ -926,6 +1228,64 @@
         ],
         "title": "HealthConductor"
       },
+      "HealthKaraoke": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "singing",
+                  "cheering"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "singer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Singer"
+          },
+          "tvOnline": {
+            "type": "boolean",
+            "title": "Tvonline"
+          },
+          "tvReporting": {
+            "type": "boolean",
+            "title": "Tvreporting"
+          },
+          "quotaUsed": {
+            "type": "integer",
+            "title": "Quotaused"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "phase",
+          "singer",
+          "tvOnline",
+          "tvReporting",
+          "quotaUsed"
+        ],
+        "title": "HealthKaraoke",
+        "description": "Por que a vez não anda. `tvOnline` é o campo que separa dois problemas que na TV parecem\nidênticos — tela preta porque o autoplay foi bloqueado, e tela preta porque a /tv nem está\naberta. Sem ele o host olha para o mesmo sintoma e não sabe o que consertar.\n\n`quotaUsed` porque a cota é o recurso que mata a busca no meio da festa e é invisível em\nqualquer outro lugar."
+      },
       "HealthPlayer": {
         "properties": {
           "playId": {
@@ -1188,6 +1548,9 @@
           "spotify": {
             "$ref": "#/components/schemas/HealthSpotify"
           },
+          "karaoke": {
+            "$ref": "#/components/schemas/HealthKaraoke"
+          },
           "invariants": {
             "additionalProperties": {
               "type": "integer"
@@ -1219,6 +1582,7 @@
           "player",
           "lastPoll",
           "spotify",
+          "karaoke",
           "invariants",
           "guestsOnline",
           "connections",
@@ -1227,6 +1591,162 @@
         ],
         "title": "HostHealth",
         "description": "RNF-27. `passive` e `restarts` existem por causa de RNF-11: quando o maestro morre e\nrenasce, ou desiste, **tudo continua parecendo saudável** — a API responde, a fila aparece, os\nvotos contam — e nada toca."
+      },
+      "KaraokeResult": {
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "title": "Videoid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "channel": {
+            "type": "string",
+            "title": "Channel"
+          },
+          "thumbUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumburl"
+          },
+          "durationMs": {
+            "type": "integer",
+            "title": "Durationms"
+          },
+          "queueable": {
+            "type": "boolean",
+            "title": "Queueable",
+            "default": true
+          },
+          "blockedReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ALREADY_QUEUED",
+                  "TOO_LONG"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedreason"
+          },
+          "blockedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedby"
+          }
+        },
+        "type": "object",
+        "required": [
+          "videoId",
+          "title",
+          "channel",
+          "thumbUrl",
+          "durationMs"
+        ],
+        "title": "KaraokeResult",
+        "description": "Espelha `SearchResult`: `queueable` calculado NO SERVIDOR contra a fila de agora.\n\nAqui a decisão de produto pesa mais que na busca normal. Um karaokê recusado só na hora de\ntocar significa o nome da pessoa já no telão, o microfone na mão, e a tela dizendo que o\nvídeo não pode ser embutido — na frente de todos. Esmaecido e explicado no celular dela move\na falha para onde ela custa uma escolha, e não uma vergonha.\n\n🔴 Não tem `PLAYED_RECENTLY`: cantar \"Evidências\" e ouvir \"Evidências\" são `track_id`\ndiferentes e experiências diferentes. A janela de repetição não deve ligar as duas."
+      },
+      "KaraokeSearchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/KaraokeResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "KaraokeSearchResponse"
+      },
+      "KaraokeStartIn": {
+        "properties": {
+          "suggestionId": {
+            "type": "integer",
+            "title": "Suggestionid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suggestionId"
+        ],
+        "title": "KaraokeStartIn",
+        "description": "🔴 O `suggestionId` no corpo não é decorativo: sem ele, um toque atrasado no botão do turno\nanterior iniciaria a vez de outra pessoa. Mesma função do `playId` no voto de skip."
+      },
+      "KaraokeStartOut": {
+        "properties": {
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId"
+        ],
+        "title": "KaraokeStartOut"
+      },
+      "KaraokeVideo": {
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "title": "Videoid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "channel": {
+            "type": "string",
+            "title": "Channel"
+          },
+          "thumbUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumburl"
+          },
+          "durationMs": {
+            "type": "integer",
+            "title": "Durationms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "videoId",
+          "title",
+          "channel",
+          "thumbUrl",
+          "durationMs"
+        ],
+        "title": "KaraokeVideo",
+        "description": "O vídeo de karaokê, e NÃO uma `Track`.\n\n🔴 O tipo separado é a defesa: `dQw4w9WgXcQ` e `4iV5W9uYEdYUVa79Axb7Rh` são os dois `string`,\ne mandar um onde o outro cabe compila, faz fetch, e falha no servidor. Com um `videoId`\ndentro de um `trackId`, alguém um dia manda isso para `force-play` ou `POST /api/suggestions`.\nDo lado do TypeScript o par vira duas marcas distintas em `web/src/types/brands.ts`.\n\n🔴 Não existe campo de LETRA aqui, e não vai existir: a letra vem QUEIMADA na imagem do vídeo.\nBuscar letra numa API e renderizar por cima significaria sincronizar duas fontes de tempo\nsobre um player que não controlamos — e letra fora de sincronia numa TV, na frente de todos,\né pior que letra nenhuma (ADR-011)."
       },
       "Me": {
         "properties": {
@@ -1300,6 +1820,140 @@
         },
         "type": "object",
         "title": "PlayerIdle"
+      },
+      "PlayerKaraokeCheering": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "karaoke_cheering",
+            "title": "Type",
+            "default": "karaoke_cheering"
+          },
+          "video": {
+            "$ref": "#/components/schemas/KaraokeVideo"
+          },
+          "singer": {
+            "type": "string",
+            "title": "Singer"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "no_show",
+              "error",
+              "skipped"
+            ],
+            "title": "Outcome"
+          },
+          "untilMs": {
+            "type": "integer",
+            "title": "Untilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "video",
+          "singer",
+          "outcome",
+          "untilMs"
+        ],
+        "title": "PlayerKaraokeCheering",
+        "description": "\"Parabéns!\". Estado do SERVIDOR e não um `setTimeout` da /tv: o /host e o celular também\nmostram, e uma janela local faria a /tv festejar enquanto o servidor já despachou a próxima.\n\n`outcome` muda a frase, e as quatro são diferentes demais para caberem num booleano. `no_show`\né a mais importante: sem ela a tela diria \"PARABÉNS\" para quem não apareceu."
+      },
+      "PlayerKaraokePlaying": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "karaoke_playing",
+            "title": "Type",
+            "default": "karaoke_playing"
+          },
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "video": {
+            "$ref": "#/components/schemas/KaraokeVideo"
+          },
+          "singer": {
+            "type": "string",
+            "title": "Singer"
+          },
+          "singerGuestId": {
+            "type": "integer",
+            "title": "Singerguestid"
+          },
+          "positionMs": {
+            "type": "integer",
+            "title": "Positionms"
+          },
+          "anchorEpochMs": {
+            "type": "integer",
+            "title": "Anchorepochms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "video",
+          "singer",
+          "singerGuestId",
+          "positionMs",
+          "anchorEpochMs"
+        ],
+        "title": "PlayerKaraokePlaying",
+        "description": "O vídeo está tocando no iframe da /tv.\n\n`position_ms`/`anchor_epoch_ms` têm o mesmo significado de `playing` DE PROPÓSITO: é o que faz\no mesmo `useProjected` servir as duas variantes, e o celular ter barra de progresso sem saber\nque existe um iframe. A âncora vem do evento `PLAYING` real da /tv, não do toque em INICIAR —\nentre os dois há buffer e possivelmente anúncio."
+      },
+      "PlayerKaraokeWaiting": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "karaoke_waiting",
+            "title": "Type",
+            "default": "karaoke_waiting"
+          },
+          "playId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playid"
+          },
+          "suggestionId": {
+            "type": "integer",
+            "title": "Suggestionid"
+          },
+          "video": {
+            "$ref": "#/components/schemas/KaraokeVideo"
+          },
+          "singer": {
+            "type": "string",
+            "title": "Singer"
+          },
+          "singerGuestId": {
+            "type": "integer",
+            "title": "Singerguestid"
+          },
+          "waitingUntilMs": {
+            "type": "integer",
+            "title": "Waitinguntilms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suggestionId",
+          "video",
+          "singer",
+          "singerGuestId",
+          "waitingUntilMs"
+        ],
+        "title": "PlayerKaraokeWaiting",
+        "description": "A vez foi chamada e o sistema ESPERA a pessoa tocar INICIAR no próprio celular.\n\nNão é um `playing` com flag: aqui o Spotify está em silêncio de propósito, o /tv chama por\nnome, e nenhuma barra de progresso faz sentido."
       },
       "PlayerPaused": {
         "properties": {
@@ -1395,14 +2049,55 @@
         ],
         "title": "PlayerPlaying"
       },
-      "QueueItem": {
+      "QueueKaraokeItem": {
         "properties": {
+          "kind": {
+            "type": "string",
+            "const": "karaoke",
+            "title": "Kind",
+            "default": "karaoke"
+          },
           "suggestionId": {
             "type": "integer",
             "title": "Suggestionid"
           },
-          "track": {
-            "$ref": "#/components/schemas/Track"
+          "suggestedBy": {
+            "type": "string",
+            "title": "Suggestedby"
+          },
+          "isYours": {
+            "type": "boolean",
+            "title": "Isyours"
+          },
+          "video": {
+            "$ref": "#/components/schemas/KaraokeVideo"
+          },
+          "blockedByMode": {
+            "type": "boolean",
+            "title": "Blockedbymode",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "suggestionId",
+          "suggestedBy",
+          "isYours",
+          "video"
+        ],
+        "title": "QueueKaraokeItem"
+      },
+      "QueueTrackItem": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "track",
+            "title": "Kind",
+            "default": "track"
+          },
+          "suggestionId": {
+            "type": "integer",
+            "title": "Suggestionid"
           },
           "suggestedBy": {
             "type": "string",
@@ -1415,17 +2110,25 @@
           "wasInterrupted": {
             "type": "boolean",
             "title": "Wasinterrupted"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "blockedByMode": {
+            "type": "boolean",
+            "title": "Blockedbymode",
+            "default": false
           }
         },
         "type": "object",
         "required": [
           "suggestionId",
-          "track",
           "suggestedBy",
           "isYours",
-          "wasInterrupted"
+          "wasInterrupted",
+          "track"
         ],
-        "title": "QueueItem"
+        "title": "QueueTrackItem"
       },
       "SearchResponse": {
         "properties": {
@@ -1475,6 +2178,15 @@
           "durationMs": {
             "type": "integer",
             "title": "Durationms"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "spotify",
+              "karaoke"
+            ],
+            "title": "Provider",
+            "default": "spotify"
           },
           "explicit": {
             "type": "boolean",
@@ -1605,6 +2317,18 @@
           "paused": {
             "type": "boolean",
             "title": "Paused"
+          },
+          "karaokeEveryN": {
+            "type": "integer",
+            "title": "Karaokeeveryn"
+          },
+          "karaokeWaitMs": {
+            "type": "integer",
+            "title": "Karaokewaitms"
+          },
+          "karaokeOnly": {
+            "type": "boolean",
+            "title": "Karaokeonly"
           }
         },
         "type": "object",
@@ -1617,7 +2341,10 @@
           "skipCooldownMs",
           "minRemainingMs",
           "minHeardMs",
-          "paused"
+          "paused",
+          "karaokeEveryN",
+          "karaokeWaitMs",
+          "karaokeOnly"
         ],
         "title": "SettingsFull"
       },
@@ -1638,6 +2365,18 @@
           "repeatWindowMs": {
             "type": "integer",
             "title": "Repeatwindowms"
+          },
+          "karaokeEnabled": {
+            "type": "boolean",
+            "title": "Karaokeenabled"
+          },
+          "karaokeEveryN": {
+            "type": "integer",
+            "title": "Karaokeeveryn"
+          },
+          "karaokeOnly": {
+            "type": "boolean",
+            "title": "Karaokeonly"
           }
         },
         "type": "object",
@@ -1645,7 +2384,10 @@
           "skipVotesNeeded",
           "suggestCooldownMs",
           "maxDurationMs",
-          "repeatWindowMs"
+          "repeatWindowMs",
+          "karaokeEnabled",
+          "karaokeEveryN",
+          "karaokeOnly"
         ],
         "title": "SettingsOut"
       },
@@ -1754,6 +2496,43 @@
               }
             ],
             "title": "Minheardms"
+          },
+          "karaokeEveryN": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Karaokeeveryn"
+          },
+          "karaokeWaitMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 300000.0,
+                "minimum": 10000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Karaokewaitms"
+          },
+          "karaokeOnly": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Karaokeonly"
           }
         },
         "type": "object",
@@ -1965,6 +2744,15 @@
               },
               {
                 "$ref": "#/components/schemas/PlayerPaused"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerKaraokeWaiting"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerKaraokePlaying"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerKaraokeCheering"
               }
             ],
             "title": "Player",
@@ -1973,6 +2761,9 @@
               "mapping": {
                 "dispatching": "#/components/schemas/PlayerDispatching",
                 "idle": "#/components/schemas/PlayerIdle",
+                "karaoke_cheering": "#/components/schemas/PlayerKaraokeCheering",
+                "karaoke_playing": "#/components/schemas/PlayerKaraokePlaying",
+                "karaoke_waiting": "#/components/schemas/PlayerKaraokeWaiting",
                 "paused": "#/components/schemas/PlayerPaused",
                 "playing": "#/components/schemas/PlayerPlaying"
               }
@@ -1980,7 +2771,21 @@
           },
           "queue": {
             "items": {
-              "$ref": "#/components/schemas/QueueItem"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/QueueTrackItem"
+                },
+                {
+                  "$ref": "#/components/schemas/QueueKaraokeItem"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "karaoke": "#/components/schemas/QueueKaraokeItem",
+                  "track": "#/components/schemas/QueueTrackItem"
+                }
+              }
             },
             "type": "array",
             "title": "Queue"
@@ -2001,7 +2806,8 @@
                 "type": "string",
                 "enum": [
                   "passive",
-                  "paused"
+                  "paused",
+                  "karaoke_only"
                 ]
               },
               {
@@ -2114,6 +2920,15 @@
           "durationMs": {
             "type": "integer",
             "title": "Durationms"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "spotify",
+              "karaoke"
+            ],
+            "title": "Provider",
+            "default": "spotify"
           }
         },
         "type": "object",
@@ -2126,6 +2941,98 @@
           "durationMs"
         ],
         "title": "Track"
+      },
+      "TvClaimIn": {
+        "properties": {
+          "tvId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Tvid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tvId"
+        ],
+        "title": "TvClaimIn",
+        "description": "O `tvId` é gerado pelo CLIENTE e vive no `sessionStorage` da aba.\n\n🔴 Gerado no cliente e não no servidor de propósito: `sessionStorage` sobrevive ao F5 da mesma\naba, então recarregar a `/tv` no meio de um karaokê reapresenta o mesmo id e a posse volta na\nhora. Com um id emitido pelo servidor a cada `claim`, uma recarga seria indistinguível de uma\nsegunda tela e o monitor perderia o som para si mesmo por 25 s."
+      },
+      "TvClaimOut": {
+        "properties": {
+          "owner": {
+            "type": "boolean",
+            "title": "Owner"
+          }
+        },
+        "type": "object",
+        "required": [
+          "owner"
+        ],
+        "title": "TvClaimOut"
+      },
+      "TvReportIn": {
+        "properties": {
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "tvId": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Tvid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "playing",
+              "paused",
+              "ended",
+              "error"
+            ],
+            "title": "State"
+          },
+          "positionMs": {
+            "type": "integer",
+            "maximum": 86400000.0,
+            "minimum": 0.0,
+            "title": "Positionms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "tvId",
+          "state",
+          "positionMs"
+        ],
+        "title": "TvReportIn",
+        "description": "O que a /tv reporta. Fronteira NÃO confiável e sem cookie (a /tv não tem e não vai ter):\nvalidação estrita é o controle compensatório, e é barata."
+      },
+      "TvReportOut": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted"
+        ],
+        "title": "TvReportOut"
       },
       "ValidationError": {
         "properties": {

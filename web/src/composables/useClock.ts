@@ -26,7 +26,14 @@ export function useProjected(
 ): ComputedRef<number> {
   return computed(() => {
     const p = player.value
-    if (p.type !== 'playing') return p.type === 'paused' ? p.positionMs : 0
-    return Math.min(p.track.durationMs, p.positionMs + (now.value - p.anchorEpochMs))
+    if (p.type === 'playing')
+      return Math.min(p.track.durationMs, p.positionMs + (now.value - p.anchorEpochMs))
+    // Mesma projeção, outra fonte de duração: karaokê não tem `Track`. A âncora vem do evento
+    // PLAYING real da /tv, não do toque em INICIAR — entre os dois há buffer e talvez anúncio, e
+    // ancorar no toque faria a barra do celular acabar antes do vídeo.
+    if (p.type === 'karaoke_playing')
+      return Math.min(p.video.durationMs, p.positionMs + (now.value - p.anchorEpochMs))
+    // `karaoke_waiting` e `karaoke_cheering` caem aqui, no 0, que é o correto e é de graça.
+    return p.type === 'paused' ? p.positionMs : 0
   })
 }

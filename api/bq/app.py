@@ -23,11 +23,12 @@ from .core.config import settings
 from .core.errors import ApiError
 from .domain.party import S, party
 from .playback.conductor import Conductor
-from .routes import guest, host, search, state
+from .routes import guest, host, karaoke, search, state
 from .spotify.auth import Auth, AuthError
 from .spotify.client import SpotifyClient, SpotifyError
 from .spotify.device import DeviceResolver
 from .view import ws
+from .youtube.client import YouTubeClient
 
 _L = log.get("app")
 
@@ -56,6 +57,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     runtime.device = device
     runtime.conductor = conductor
     runtime.hub = ws.Hub()
+
+    # Mesmo `AsyncClient`: um pool de conexões, um timeout, um lugar para fechar no shutdown.
+    #
+    # 🔴 O `else` atribui `None` em vez de não atribuir nada. Os singletons de `runtime` são
+    # globais de módulo, e um lifespan que só escreve na presença da chave deixa de pé o cliente
+    # de um processo anterior — na suíte isso é um teste vendo o duplo de outro, e o sintoma é
+    # passar sozinho e falhar em conjunto. O lifespan estabelece o estado INTEIRO, sempre.
+    if settings.youtube_api_key:
+        runtime.youtube = YouTubeClient(http, settings.youtube_api_key)
+    else:
+        runtime.youtube = None
+        _L.info("sem YOUTUBE_API_KEY: karaokê desligado (a aba não aparece para os convidados)")
 
     try:
         auth.load()
@@ -132,6 +145,8 @@ async def _auth_error(_: Request, exc: Exception) -> JSONResponse:
 
 app.include_router(guest.router)
 app.include_router(search.router)
+app.include_router(karaoke.router)
+app.include_router(karaoke.tv)
 app.include_router(state.router)
 app.include_router(host.router)
 

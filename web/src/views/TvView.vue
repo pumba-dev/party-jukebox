@@ -6,9 +6,10 @@
 // por descuido de template (06 §4).
 
 import QRCode from 'qrcode'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
-import { faltam, mmss } from '@/api'
+import { api, faltam, mmss } from '@/api'
+import TvKaraoke from '@/components/TvKaraoke.vue'
 import { useNow, useProjected } from '@/composables/useClock'
 import { useParty } from '@/stores/party'
 
@@ -20,7 +21,7 @@ const posicao = useProjected(
 )
 
 const tocando = computed(() => (party.player.type === 'playing' ? party.player : null))
-const faixa = computed(() => (party.player.type === 'idle' ? null : party.player.track))
+const faixa = computed(() => party.faixa)
 const vazio = computed(() => party.player.type === 'idle')
 
 /** 🔴 `idle` responde "nada toca" e não responde POR QUÊ, e os dois porquês pedem telas
@@ -36,6 +37,11 @@ const parada = computed<{ titulo: string; sub: string } | null>(() => {
     }
   if (party.stalled === 'paused')
     return { titulo: 'pausado', sub: 'o anfitrião pausou a música' }
+  if (party.stalled === 'karaoke_only')
+    return {
+      titulo: 'modo karaokê',
+      sub: 'só entram músicas para cantar — as normais estão guardadas',
+    }
   return null
 })
 
@@ -170,13 +176,104 @@ watch(
   },
   { immediate: true },
 )
+
+// --- M3.4 · a posse do áudio -------------------------------------------------------------------
+//
+// Uma segunda /tv aberta no celular para espiar faria a sala ouvir DOIS players dessincronizados.
+// Não há erro, não há exceção, e as duas telas estão certas — é o pior modo de falha sonoro da
+// feature. O servidor arbitra (`PartyRuntime.tv_claim`); aqui só batemos e obedecemos.
+
+const TV_ID_KEY = 'bq.tvId'
+
+/** 🔴 `sessionStorage`, nunca `localStorage`: o id é por ABA. Com localStorage, duas /tv na mesma
+ * máquina compartilhariam o id, as duas se achariam donas, e o claim não impediria nada.
+ * `sessionStorage` **sobrevive ao F5** da mesma aba, que é o que devolve a posse a uma /tv
+ * recarregada no meio de uma música.
+ *
+ * 🔴 `Math.random` e não `crypto.randomUUID()`: a festa roda em `http://192.168.x.x`, que **não é
+ * secure context**, e ali `crypto.randomUUID` é `undefined`. Funcionaria a noite toda no
+ * `localhost` do desenvolvimento e quebraria só na sala. */
+function meuTvId(): string {
+  const guardado = sessionStorage.getItem(TV_ID_KEY)
+  if (guardado) return guardado
+  const novo = `tv-${Math.random().toString(36).slice(2, 12)}-${Date.now().toString(36)}`
+  sessionStorage.setItem(TV_ID_KEY, novo)
+  return novo
+}
+
+const tvId = meuTvId()
+const dono = ref(false)
+let batidaTv: number | undefined
+
+async function bater(): Promise<void> {
+  try {
+    dono.value = (await api.tv.claim(tvId)).owner
+  } catch {
+    // 🔴 Mantém o valor anterior. Zerar aqui faria um engasgo de Wi-Fi de 1 s emudecer o monitor
+    // no meio de uma música — e o TTL do servidor (25 s) já cobre a /tv que morreu de verdade.
+  }
+}
+
+/** Fechando a aba: devolve a posse NA HORA.
+ *
+ * 🔴 `sendBeacon` e não `fetch`: a página está morrendo, e o browser cancela requisições pendentes
+ * de um documento que sai. O beacon é entregue pelo próprio browser depois. Sem isto, trocar a /tv
+ * de monitor no meio da festa custa 25 s de silêncio — o TTL do servidor — e o sintoma na tela
+ * nova é simplesmente não sair som, sem nenhuma pista.
+ *
+ * `pagehide` e não `beforeunload`: o segundo não dispara de forma confiável no iOS, e não custa
+ * nada acertar os dois casos. */
+function soltar(): void {
+  navigator.sendBeacon?.(
+    '/api/tv/release',
+    new Blob([JSON.stringify({ tvId })], { type: 'application/json' }),
+  )
+}
+
+onMounted(() => {
+  void bater()
+  // 10 s contra um TTL de 25 s no servidor: dois batimentos podem se perder sem perder a posse.
+  batidaTv = window.setInterval(bater, 10_000)
+  window.addEventListener('pagehide', soltar)
+})
+onUnmounted(() => {
+  window.clearInterval(batidaTv)
+  window.removeEventListener('pagehide', soltar)
+  // Navegar para outra tela do app (o `<RouterView>` desmonta a /tv sem descarregar a página) é
+  // saída igual: o `pagehide` não dispara nesse caminho.
+  soltar()
+})
 </script>
 
 <template>
   <main class="no-select h-dvh overflow-hidden p-10">
+    <!-- 🔴 A `<Transition>` envolve os TRÊS ramos de topo, e não só a troca de faixa. Entrar e
+         sair de um karaokê é a maior mudança de cena que esta tela tem — a sala inteira vira a
+         cabeça — e um corte seco a 3 metros é indistinguível de um bug de renderização.
+
+         `key="karaoke"` para o turno inteiro, e NÃO o `playId`: `waiting` não tem play, `cheering`
+         também não, e chavear por ele remontaria o componente duas vezes por vez cantada, jogando
+         fora o iframe que passou a chamada inteira bufferizando. Ver o cabeçalho de
+         `TvKaraoke.vue` — as fases são um `v-if` de DENTRO do componente, de propósito. -->
+    <Transition name="troca" mode="out-in">
+    <TvKaraoke
+      v-if="party.karaoke"
+      key="karaoke"
+      :agora="now"
+      :dono="dono"
+      :estado="party.karaoke"
+      :qr="qr"
+      :qr-wifi="qrWifi"
+      :tv-id="tvId"
+    />
+
     <!-- RF-36 · fila vazia ocupa a tela inteira. É um ramo obrigatório da união, não um v-if no
          fim do arquivo: por ADR-005 este estado acontece DE PROPÓSITO às 22h30. -->
-    <section v-if="vazio" class="flex h-full flex-col items-center justify-center gap-8">
+    <section
+      v-else-if="vazio"
+      key="parado"
+      class="flex h-full flex-col items-center justify-center gap-8"
+    >
       <template v-if="parada">
         <p class="text-warn text-7xl font-black tracking-tight">{{ parada.titulo }}</p>
         <p class="text-mute max-w-5xl text-center text-4xl">{{ parada.sub }}</p>
@@ -216,7 +313,7 @@ watch(
       <p class="text-mute text-3xl">{{ party.guestsOnline }} pessoas na festa</p>
     </section>
 
-    <div v-else class="flex h-full flex-col gap-8">
+    <div v-else key="tocando" class="flex h-full flex-col gap-8">
       <!-- M2.8 · a troca de faixa. Chaveada no `trackId` e não no `playId`: `dispatching →
            playing` da MESMA faixa não é uma troca, e reanimar ali faria a capa piscar 1 s depois
            de aparecer, sem nada ter mudado para quem olha.
@@ -307,15 +404,41 @@ watch(
               v-for="(item, i) in party.queue.slice(0, 6)"
               :key="item.suggestionId"
               class="flex items-baseline gap-4 text-3xl"
-              :class="i === 0 ? 'font-bold' : 'text-mute'"
+              :class="[
+                i === 0 && !item.blockedByMode ? 'font-bold' : 'text-mute',
+                // Está na fila e não vai tocar agora (modo karaokê guardando as normais, ou o
+                // contrário). Esmaecido e não escondido: sumir seria indistinguível de remoção,
+                // e quem sugeriu ficaria procurando a própria música.
+                item.blockedByMode ? 'opacity-40' : '',
+              ]"
             >
-              <span class="text-accent w-6 shrink-0">{{ i === 0 ? '▸' : '' }}</span>
-              <span class="min-w-0 flex-1 truncate">
-                {{ item.track.name }}
-                <span class="opacity-60">— {{ item.track.artists }}</span>
+              <!-- O ▸ marca a próxima que TOCA, não o índice 0: em modo karaokê o topo da lista
+                   pode estar todo bloqueado, e a seta apontaria para o que não vai sair. -->
+              <span class="text-accent w-6 shrink-0">
+                {{ i === 0 && !item.blockedByMode ? '▸' : '' }}
               </span>
-              <span class="text-accent shrink-0 text-2xl">{{ item.suggestedBy }}</span>
-              <span v-if="item.wasInterrupted" class="text-warn shrink-0">↩</span>
+              <span class="min-w-0 flex-1 truncate">
+                <template v-if="item.kind === 'karaoke'">
+                  <span class="text-mic">🎤</span>
+                  {{ item.video.title }}
+                  <span class="opacity-60">— {{ item.video.channel }}</span>
+                </template>
+                <template v-else>
+                  {{ item.track.name }}
+                  <span class="opacity-60">— {{ item.track.artists }}</span>
+                </template>
+              </span>
+              <span
+                class="shrink-0 text-2xl"
+                :class="item.kind === 'karaoke' ? 'text-mic' : 'text-accent'"
+              >
+                {{ item.suggestedBy }}
+              </span>
+              <span
+                v-if="item.kind === 'track' && item.wasInterrupted"
+                class="text-warn shrink-0"
+                >↩</span
+              >
             </li>
             <!-- Chaves obrigatórias: dentro de um TransitionGroup todo filho é rastreado por
                  chave, e sem elas o Vue avisa no console e a animação de `move` erra o alvo. -->
@@ -355,5 +478,6 @@ watch(
         </div>
       </section>
     </div>
+    </Transition>
   </main>
 </template>

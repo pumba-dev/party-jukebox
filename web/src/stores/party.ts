@@ -1,7 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-import type { Me, PlayerState, QueueItem, Settings, SkipState, StateSnapshot } from '@/types/ws'
+import type {
+  KaraokeState,
+  Me,
+  PlayerState,
+  QueueItem,
+  Settings,
+  SkipState,
+  StateSnapshot,
+  Track,
+} from '@/types/ws'
 
 export const useParty = defineStore('party', () => {
   const player = ref<PlayerState>({ type: 'idle' })
@@ -16,7 +25,9 @@ export const useParty = defineStore('party', () => {
   const me = ref<Me | null>(null)
   const settings = ref<Settings | null>(null)
   const guestsOnline = ref(0)
-  const stalled = ref<'passive' | 'paused' | null>(null)
+  // Declarado à mão e não como `StateSnapshot['stalled']` de propósito: assim alargar o Literal no
+  // pydantic sem tratar o caso novo nas telas quebra aqui, no `apply`, em vez de passar batido.
+  const stalled = ref<'passive' | 'paused' | 'karaoke_only' | null>(null)
   const joinUrl = ref('')
   const wifiQr = ref<string | null>(null)
   const wifiSsid = ref<string | null>(null)
@@ -82,7 +93,35 @@ export const useParty = defineStore('party', () => {
 
   const minhas = computed(() => queue.value.filter((q) => q.isYours))
 
+  /** A faixa do Spotify em cena, se houver. Três variantes da união a têm; as três de karaokê e
+   * `idle` não.
+   *
+   * 🔴 Mora aqui e não em cada tela porque as três faziam a MESMA narrowing errada —
+   * `type === 'idle' ? null : player.track` — que só compilava enquanto `idle` era a única
+   * variante sem `track`. Uma variante nova quebrava as três de uma vez; agora quebra aqui, uma
+   * vez, e o compilador aponta o lugar certo. */
+  const faixa = computed<Track | null>(() => {
+    const p = player.value
+    return p.type === 'dispatching' || p.type === 'playing' || p.type === 'paused'
+      ? p.track
+      : null
+  })
+
+  /** O turno no microfone, em qualquer das três fases, ou `null`. Discriminar por `type` de novo
+   * em cada tela seria repetir a lista de variantes — e esquecer uma delas é a tela mostrando
+   * "nada tocando" com alguém cantando na frente de trinta pessoas. */
+  const karaoke = computed<KaraokeState | null>(() => {
+    const p = player.value
+    return p.type === 'karaoke_waiting' ||
+      p.type === 'karaoke_playing' ||
+      p.type === 'karaoke_cheering'
+      ? p
+      : null
+  })
+
   return {
+    faixa,
+    karaoke,
     player,
     queue,
     skip,

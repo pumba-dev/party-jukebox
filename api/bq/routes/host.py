@@ -27,8 +27,11 @@ from ..models import (
     HealthConductor,
     HealthPlayer,
     HealthPoll,
+    HealthKaraoke,
     HealthSpotify,
     HostHealth,
+    KaraokeStartIn,
+    KaraokeStartOut,
     PinIn,
     SettingsFull,
     SettingsPatch,
@@ -39,6 +42,7 @@ from ..models import (
     VotersOut,
 )
 from ..domain.party import S, party
+from ..playback.conductor import KaraokeStartError
 from ..spotify.client import SpotifyError
 from ..view import ws
 
@@ -57,6 +61,19 @@ def require_host(request: Request) -> None:
 Host = Annotated[None, Depends(require_host)]
 
 
+def _txt(value: object) -> str:
+    """🔴 `str(True)` é `'True'`, e `GameSettings.reload()` compara com `'1'`.
+
+    Era um `str(value)` cru, e não explodiu até hoje porque nenhum bool passava por este PATCH —
+    `paused` tem rotas próprias (`/pause`, `/resume`). `karaoke_only` passa, e sem isto o host
+    mexe no interruptor, recebe **200**, e o cache em memória nunca vê a mudança: a falha
+    silenciosa exata que a regra dos cinco lugares existe para evitar.
+    """
+    if isinstance(value, bool):  # antes de int: em Python, bool É int
+        return "1" if value else "0"
+    return str(value)
+
+
 def _settings_out() -> SettingsFull:
     return SettingsFull(
         skip_votes_needed=S.skip_votes_needed,
@@ -68,6 +85,9 @@ def _settings_out() -> SettingsFull:
         min_remaining_ms=S.min_remaining_ms,
         min_heard_ms=S.min_heard_ms,
         paused=S.paused,
+        karaoke_every_n=S.karaoke_every_n,
+        karaoke_wait_ms=S.karaoke_wait_ms,
+        karaoke_only=S.karaoke_only,
     )
 
 
@@ -102,7 +122,7 @@ async def patch_settings(body: SettingsPatch, _: Host) -> SettingsFull:
     faz broadcast — o /tv precisa passar a dizer `n de 4` na mesma hora."""
     mudou = body.model_dump(exclude_none=True, by_alias=False)
     for key, value in mudou.items():
-        S.write(key, str(value))
+        S.write(key, _txt(value))
     if mudou:
         await ws.notify()
     return _settings_out()
@@ -166,6 +186,27 @@ async def host_remove(suggestion_id: int, _: Host) -> Response:
     queue.remove(suggestion_id)
     await ws.notify()
     return Response(status_code=204)
+
+
+@router.post("/karaoke/start", response_model=KaraokeStartOut)
+async def host_karaoke_start(body: KaraokeStartIn, _: Host) -> KaraokeStartOut:
+    """O host começa a vez pela pessoa: o celular dela morreu, ou ela já está de pé na frente da
+    TV com o microfone. Espelha o par `DELETE /api/suggestions/{id}` × o do host."""
+    try:
+        play = await runtime.require_conductor().karaoke_start(
+            suggestion_id=body.suggestion_id, guest_id=None
+        )
+    except KaraokeStartError as e:
+        raise ApiError(e.code, e.message) from e
+    return KaraokeStartOut(play_id=play.play_id)
+
+
+@router.post("/karaoke/cancel")
+async def host_karaoke_cancel(_: Host, penalize: bool = False) -> dict[str, bool]:
+    """Encerra a vez em curso. `penalize=false` (o default) é o botão "essa pessoa foi embora":
+    não conta falta, porque quem decidiu foi o host e não a ausência dela."""
+    ok = await runtime.require_conductor().cancel_turn(penalize=penalize)
+    return {"ok": ok}
 
 
 @router.post("/reactivate")
@@ -259,6 +300,7 @@ async def health(_: Host) -> HostHealth:
     cond = runtime.require_conductor()
     dev = runtime.require_device()
     cur = cond.current
+    turno = cond.karaoke
     blocked = guards.blocked(cur) if cur is not None else None
     return HostHealth(
         device=None
@@ -292,6 +334,14 @@ async def health(_: Host) -> HostHealth:
         spotify=HealthSpotify(
             token_expires_in_s=(runtime.auth.expires_in_ms // 1000) if runtime.auth else 0,
             recent_errors=party.recent_errors[-5:],
+        ),
+        karaoke=HealthKaraoke(
+            enabled=S.karaoke_enabled and runtime.youtube is not None,
+            phase=None if turno is None else turno.phase.value,
+            singer=None if turno is None else turno.nickname,
+            tv_online=party.tv_online(clock.mono_ms()),
+            tv_reporting=cond.tv_fresh,
+            quota_used=runtime.youtube.units_used if runtime.youtube else 0,
         ),
         invariants=db.check_invariants(),
         guests_online=runtime.hub.guests_online() if runtime.hub else 0,

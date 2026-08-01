@@ -12,12 +12,14 @@
 
 import { expect, type Page, type WebSocketRoute } from '@playwright/test'
 
-import type { GuestId, PlayId, TrackId } from '../../src/types/brands'
+import type { GuestId, PlayId, TrackId, YoutubeVideoId } from '../../src/types/brands'
 import type {
+  KaraokeVideo,
   Me,
   PlayerState,
   QueueItem,
   ServerMsg,
+  Settings,
   SkipState,
   StateSnapshot,
   Track,
@@ -72,6 +74,94 @@ export function eu(over: Partial<Me> = {}): Me {
   return { guestId: 7 as GuestId, nickname: 'Ana', cooldownUntilMs: null, ...over }
 }
 
+// --- karaokê -----------------------------------------------------------------------------------
+
+export const VIDEO_MS = 245_000
+
+export function video(over: Partial<KaraokeVideo> = {}): KaraokeVideo {
+  return {
+    videoId: 'dQw4w9WgXcQ' as YoutubeVideoId,
+    title: 'Evidências (Karaokê版)',
+    channel: 'Karaokê Brasil',
+    thumbUrl: null,
+    durationMs: VIDEO_MS,
+    ...over,
+  }
+}
+
+type Chamando = Extract<PlayerState, { type: 'karaoke_waiting' }>
+type Cantando = Extract<PlayerState, { type: 'karaoke_playing' }>
+type Fechando = Extract<PlayerState, { type: 'karaoke_cheering' }>
+
+/** A vez foi chamada e o sistema espera a pessoa tocar INICIAR. `singerGuestId` bate com `eu()`
+ * de propósito: o teste que importa aqui é o do DONO do botão. */
+export function chamando(over: Partial<Chamando> = {}): PlayerState {
+  return {
+    type: 'karaoke_waiting',
+    playId: null,
+    suggestionId: 42,
+    video: video(),
+    singer: 'Ana',
+    singerGuestId: 7 as GuestId,
+    waitingUntilMs: AGORA + 45_000,
+    ...over,
+  }
+}
+
+export function cantando(over: Partial<Cantando> = {}): PlayerState {
+  return {
+    type: 'karaoke_playing',
+    playId: 9 as PlayId,
+    video: video(),
+    singer: 'Ana',
+    singerGuestId: 7 as GuestId,
+    positionMs: 0,
+    anchorEpochMs: AGORA,
+    ...over,
+  }
+}
+
+export function fechando(over: Partial<Fechando> = {}): PlayerState {
+  return {
+    type: 'karaoke_cheering',
+    video: video(),
+    singer: 'Ana',
+    outcome: 'ok',
+    untilMs: AGORA + 5_000,
+    ...over,
+  }
+}
+
+export function karaokeNaFila(
+  suggestionId: number,
+  over: Partial<KaraokeVideo> = {},
+  quem = 'Bia',
+): QueueItem {
+  return {
+    kind: 'karaoke',
+    suggestionId,
+    suggestedBy: quem,
+    isYours: false,
+    blockedByMode: false,
+    video: video({ videoId: `vid-${suggestionId}` as YoutubeVideoId, ...over }),
+  }
+}
+
+/** Os limiares. Separado porque `snapshot({ settings: … })` substitui o objeto inteiro, e ligar só
+ * o karaokê exigiria repetir os outros seis campos em cada teste. */
+export function regras(over: Partial<Settings> = {}): Settings {
+  return {
+    skipVotesNeeded: 5,
+    suggestCooldownMs: 90_000,
+    maxDurationMs: 480_000,
+    repeatWindowMs: 7_200_000,
+    karaokeEnabled: false,
+    karaokeEveryN: 0,
+    karaokeOnly: false,
+    ...over,
+  }
+}
+
 export function skip(over: Partial<SkipState> = {}): SkipState {
   return { votes: 0, needed: 5, youVoted: false, blockedReason: null, blockedUntilMs: null, ...over }
 }
@@ -86,15 +176,7 @@ export function snapshot(over: Partial<StateSnapshot> = {}): StateSnapshot {
     player: { type: 'idle' },
     queue: [],
     skip: skip(),
-    settings: {
-      skipVotesNeeded: 5,
-      suggestCooldownMs: 90_000,
-      maxDurationMs: 480_000,
-      repeatWindowMs: 7_200_000,
-      karaokeEnabled: false,
-      karaokeEveryN: 0,
-      karaokeOnly: false,
-    },
+    settings: regras(),
     guestsOnline: 3,
     stalled: null,
     me: null,
@@ -117,6 +199,9 @@ export type Mesa = {
   empurrar(msg: ServerMsg): Promise<void>
   /** Derruba o socket atual, como um Wi-Fi caindo. */
   derrubar(): Promise<void>
+  /** Se esta `/tv` é dona do áudio. `true` por padrão — a segunda tela é o caso excepcional, e
+   * exigir a chamada em todo teste de /tv esconderia o que este controle testa. */
+  posse(dono: boolean): void
 }
 
 /**
@@ -135,6 +220,12 @@ export async function montar(page: Page, inicial: StateSnapshot): Promise<Mesa> 
   let avisar: (() => void) | undefined
 
   await page.route('**/api/state', (route) => route.fulfill({ json: atual }))
+
+  // A /tv bate aqui a cada 10 s para saber se pode fazer som. Instalada sempre e não só nos
+  // testes de karaokê: sem a rota, a batida vai para a rede de verdade e o teste fica dependendo
+  // do que o `vite dev` responde num caminho que ele não conhece.
+  let dono = true
+  await page.route('**/api/tv/claim', (route) => route.fulfill({ json: { owner: dono } }))
 
   await page.routeWebSocket('**/ws', (ws) => {
     sockets.push(ws)
@@ -176,6 +267,9 @@ export async function montar(page: Page, inicial: StateSnapshot): Promise<Mesa> 
     },
     async derrubar() {
       await (await vivo()).close()
+    },
+    posse(v) {
+      dono = v
     },
   }
 }

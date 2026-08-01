@@ -179,6 +179,63 @@ export const GRUPOS = [
       },
     ],
   },
+  {
+    titulo: 'Karaokê',
+    janela: false,
+    campos: [
+      {
+        key: 'karaokeEveryN',
+        rotulo: 'Karaokê na fila',
+        ajuda:
+          'De quantas em quantas músicas normais entra um karaokê. Em "desligado", ninguém ' +
+          'consegue mandar karaokê — e os que já estiverem na fila param de tocar, mas continuam ' +
+          'lá para você remover. Muito baixo e a festa vira open mic: quem só quer ouvir música ' +
+          'nunca é atendido.',
+        opcoes: [
+          { valor: 0, rotulo: 'desligado' },
+          { valor: 1, rotulo: 'um sim, um não' },
+          { valor: 2, rotulo: 'a cada 2 músicas' },
+          { valor: 3, rotulo: 'a cada 3 músicas' },
+          { valor: 4, rotulo: 'a cada 4 músicas' },
+          { valor: 5, rotulo: 'a cada 5 músicas' },
+          { valor: 6, rotulo: 'a cada 6 músicas' },
+          { valor: 8, rotulo: 'a cada 8 músicas' },
+          { valor: 10, rotulo: 'a cada 10 músicas' },
+        ],
+      },
+      {
+        key: 'karaokeWaitMs',
+        rotulo: 'Esperar o cantor começar',
+        ajuda:
+          'Chegou a vez, a TV chama a pessoa pelo nome e espera ela tocar INICIAR no celular. ' +
+          'Vencido o tempo, a vez vai para o fim da fila e a música normal volta. Abaixo de 30 s ' +
+          'a pessoa perde a vez por causa da tela bloqueada do celular; acima de 1 min a sala ' +
+          'fica em silêncio tempo demais olhando para o nome de alguém.',
+        opcoes: [
+          { valor: 20_000, rotulo: '20 s' },
+          { valor: 30_000, rotulo: '30 s' },
+          { valor: 45_000, rotulo: '45 s' },
+          { valor: 60_000, rotulo: '1 min' },
+          { valor: 90_000, rotulo: '1 min 30' },
+          { valor: 120_000, rotulo: '2 min' },
+          { valor: 180_000, rotulo: '3 min' },
+          { valor: 300_000, rotulo: '5 min' },
+        ],
+      },
+      {
+        key: 'karaokeOnly',
+        rotulo: 'Só karaokê',
+        ajuda:
+          'A fila normal fica guardada e só tocam os karaokês. Sem karaokê na fila, a festa ' +
+          'espera em silêncio — de propósito, e a TV explica que está esperando. As músicas ' +
+          'normais não somem: ficam na fila, esmaecidas, e voltam a tocar quando você desligar.',
+        opcoes: [
+          { valor: false, rotulo: 'não — karaokê entra no meio da fila' },
+          { valor: true, rotulo: 'sim — só karaokê' },
+        ],
+      },
+    ],
+  },
 ] as const
 
 // 🔴 Cobertura: garante que TODO limiar que o servidor aceita escrever tem controle na tela. Sem

@@ -5,9 +5,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from bq.core import db
+from bq.domain.party import S
 
 from ..apoio.faixas import seed_track
 from ..apoio.rotas import entrar, virar_host
+from ..apoio.youtube import ligar
 
 # --- WebSocket -------------------------------------------------------------------------------
 
@@ -199,6 +201,69 @@ def test_settings_valida_faixa(client: TestClient) -> None:
     virar_host(client)
     assert client.patch("/api/host/settings", json={"skipVotesNeeded": 0}).status_code == 422
     assert client.get("/api/state").json()["settings"]["skipVotesNeeded"] == 5
+
+
+def test_o_patch_grava_bool_como_um_e_zero(client: TestClient) -> None:
+    """🔴 O bug que o karaokê acordou, e que era invisível até existir um bool no `PATCH`.
+
+    `S.write(key, str(value))` grava `'True'`, e `GameSettings.reload()` compara com `'1'`. O
+    host mexeria no interruptor, receberia **200**, e o cache em memória nunca veria a mudança —
+    a falha silenciosa exata que a regra dos cinco lugares existe para evitar. Ninguém tinha
+    notado porque `paused`, o único bool até aqui, tem rotas próprias (`/pause`, `/resume`).
+
+    O assert do BANCO é o que importa: sem ele, um `reload()` que casasse com `'True'` faria o
+    teste passar e deixaria duas grafias vivas na mesma coluna.
+    """
+    virar_host(client)
+
+    r = client.patch("/api/host/settings", json={"karaokeOnly": True})
+    assert r.status_code == 200 and r.json()["karaokeOnly"] is True
+    assert db.scalar("SELECT value FROM setting WHERE key='karaoke_only'") == "1"
+    assert S.karaoke_only is True
+
+    r = client.patch("/api/host/settings", json={"karaokeOnly": False})
+    assert r.status_code == 200 and r.json()["karaokeOnly"] is False
+    assert db.scalar("SELECT value FROM setting WHERE key='karaoke_only'") == "0"
+    assert S.karaoke_only is False
+
+
+def test_karaoke_nasce_desligado_e_o_snapshot_conta(client: TestClient) -> None:
+    """A feature não muda uma festa em andamento até o host acender: é o que torna cada fatia
+    entregável. E a tela do convidado precisa do campo para decidir se mostra a aba.
+
+    🔴 `karaokeEnabled` são DUAS metades — o host ligou E existe chave do YouTube. Ligar só uma
+    não acende: sem a chave, a aba apareceria e toda busca devolveria 422.
+    """
+    cfg = client.get("/api/state").json()["settings"]
+    assert cfg["karaokeEnabled"] is False
+    assert cfg["karaokeEveryN"] == 0
+    assert cfg["karaokeOnly"] is False
+
+    virar_host(client)
+    client.patch("/api/host/settings", json={"karaokeEveryN": 3})
+    assert client.get("/api/state").json()["settings"]["karaokeEnabled"] is False, (
+        "o host ligou, mas não há chave do YouTube: a aba continua escondida"
+    )
+
+    ligar()
+    assert client.get("/api/state").json()["settings"]["karaokeEnabled"] is True
+
+
+def test_modo_so_karaoke_explica_o_silencio(client: TestClient) -> None:
+    """🔴 Sem `stalled`, o /tv mostraria "a fila está vazia · aponte a câmera" com músicas
+    esperando — mentindo na frente de todos. É o mesmo argumento de `passive` e `paused`, com
+    causa diferente: aqui quem recusou foi a ordenação, não o maestro."""
+    entrar(client, "Ana")
+    client.post("/api/suggestions", json={"trackId": seed_track(41)})
+    assert client.get("/api/state").json()["stalled"] is None
+
+    virar_host(client)
+    client.patch("/api/host/settings", json={"karaokeOnly": True})
+
+    estado = client.get("/api/state").json()
+    assert estado["stalled"] == "karaoke_only"
+    assert len(estado["queue"]) == 1, "a música normal continua na fila"
+    assert estado["queue"][0]["blockedByMode"] is True, "e aparece marcada, não some"
 
 
 def test_host_remove_sugestao_de_outro(client: TestClient) -> None:
