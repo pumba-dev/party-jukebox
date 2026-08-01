@@ -212,6 +212,28 @@ async def test_cinco_votos_pulam_a_faixa(clk: FakeClock, base: None) -> None:
     assert db.one("SELECT end_reason FROM play WHERE id=?", (play_id,))["end_reason"] == "skip_vote"
 
 
+async def test_cinco_votos_na_ultima_faixa_param_o_som(clk: FakeClock, base: None) -> None:
+    """RF-17 pelo caminho do convidado. `votes.evaluate` chama o MESMO `Conductor.skip()` do botão
+    do /host, então o defeito de "pulou a última e o Spotify seguiu tocando" era idêntico aqui — e
+    é o caminho mais provável na festa, porque cinco pessoas votando é mais comum que o host
+    apertar Pular."""
+    cond, fake = build(clk)
+    dono = guests.create("Ana")
+    enqueue(fake, dono.id, 1, 200_000, clk.wall)  # UMA na fila, ao contrário de `tocando()`
+    await simulate(cond, clk, 2_000)
+    assert cond.current is not None and queue.size() == 0
+    play_id = cond.current.play_id
+    votantes = [guests.create(f"P{i}") for i in range(5)]
+    clk.advance(S.min_heard_ms + 1_000)
+    fake.calls.clear()
+
+    for v in votantes:
+        await votes.cast(v, play_id)
+
+    assert cond.current is None
+    assert [c for c in fake.calls if c[0] == "pause"], "a sala continuou ouvindo a faixa pulada"
+
+
 async def test_sete_votos_simultaneos_pulam_UMA_faixa(clk: FakeClock, base: None) -> None:
     """🔴 A regressão mais importante desta suíte.
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from bq.core import db
 from bq.domain import guests, queue
+from bq.domain.party import S, party
 from bq.domain.play import DISPATCH_LEAD_MS, PlayState
+from bq.view import snapshot
 
 from ..apoio.maestro import build, enqueue, simulate
 from ..apoio.relogio import FakeClock
@@ -152,6 +154,125 @@ async def test_404_no_play_reresolve_device_e_transfere(
 
     assert ("transfer", fake.device_id) in fake.calls
     assert cond.current is not None, "recuperou sem intervenção nenhuma"
+
+
+# --- RF-17 · fila vazia é silêncio, e silêncio se PEDE ao Spotify ------------------------------
+#
+# `_end_play` é banco e broadcast, e nunca fala com o Spotify. Os dois lugares que ficavam sem
+# próxima faixa tinham um `if nxt is not None` sem `else`, então o bq ficava `idle` e a sala ouvia a
+# música até o fim. O bug foi observado na festa de ensaio: o host pulou a última e o som continuou.
+
+
+async def test_pular_a_ultima_com_a_fila_vazia_para_o_som(
+    clk: FakeClock, guest: guests.Guest
+) -> None:
+    """O bug relatado. Uma música na fila, o host pula, e o Spotify tem de calar."""
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 60_000, clk.wall)
+    await simulate(cond, clk, 2_000)
+    assert cond.current is not None and queue.size() == 0
+    fake.calls.clear()
+
+    await cond.skip("host_skip")
+
+    assert ("pause", fake.playing) in fake.calls, "fechou o play e deixou o Spotify tocando"
+    assert cond.current is None
+    assert fake.paused is True
+
+
+async def test_o_silencio_de_fila_vazia_nao_e_a_pausa_do_host(
+    clk: FakeClock, guest: guests.Guest
+) -> None:
+    """🔴 O discriminante entre RF-17 e RF-28, e a razão de `_go_silent` não escrever `paused`.
+
+    Com o flag de RF-28 ligado, `_step` para de despachar e `snapshot._stalled()` devolve "paused":
+    o /tv diria "o anfitrião pausou" em vez da chamada de ADR-005, e a sugestão seguinte não
+    tocaria até alguém apertar "Retomar". A segunda metade do teste é essa prova.
+    """
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 60_000, clk.wall)
+    await simulate(cond, clk, 2_000)
+    await cond.skip("host_skip")
+
+    snap = snapshot.build(None)
+    assert snap.player.type == "idle", "a fila vazia é `idle`, não `paused`"
+    assert snap.stalled is None, "nada travou: a fila acabou, que é o estado esperado às 22h30"
+    assert S.paused is False
+    assert db.one("SELECT value FROM setting WHERE key='paused'")["value"] == "0"
+
+    # e a fila volta a andar sozinha, sem ninguém tocar em "Retomar"
+    enqueue(fake, guest.id, 2, 30_000, clk.wall)
+    cond.wake()
+    await simulate(cond, clk, 2_000)
+    assert cond.current is not None and cond.current.state is PlayState.PLAYING
+    assert fake.paused is False
+
+
+async def test_pular_com_fila_cheia_nao_pausa(clk: FakeClock, guest: guests.Guest) -> None:
+    """A outra metade: pausar aqui cortaria o som entre duas faixas que se seguem."""
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 60_000, clk.wall)
+    enqueue(fake, guest.id, 2, 60_000, clk.wall + 1)
+    await simulate(cond, clk, 2_000)
+    fake.calls.clear()
+
+    await cond.skip("host_skip")
+
+    assert not [c for c in fake.calls if c[0] == "pause"]
+    assert cond.current is not None, "despachou a seguinte"
+
+
+async def test_fim_natural_com_a_fila_vazia_tambem_silencia(
+    clk: FakeClock, guest: guests.Guest
+) -> None:
+    """O ramo do fim natural funcionava por ACIDENTE: `start_playback` manda `uris:[uri]` e nunca
+    `context_uri`, então a fila do próprio Spotify tem uma faixa e o player para sozinho. Isso
+    depende de o autoplay estar desligado na conta, e ainda deixa audível o lead de 150 ms."""
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 5_000, clk.wall)
+
+    await simulate(cond, clk, 8_000)
+
+    assert cond.current is None and queue.size() == 0
+    assert [c for c in fake.calls if c[0] == "pause"], (
+        "pediu o silêncio em vez de contar com o autoplay da conta estar desligado"
+    )
+
+
+async def test_pause_recusado_no_silencio_nao_derruba_nem_alarma(
+    clk: FakeClock, guest: guests.Guest
+) -> None:
+    """403 (já pausado) e 404 (sem device ativo) são ESPERADOS aqui e não são acionáveis: o
+    objetivo, não sair som, já está cumprido. Um `SpotifyError` solto mataria o `_step` e o
+    `run_forever` reiniciaria o laço em loop; e `note_error` acenderia o cartão de saúde do /host
+    para um não-problema."""
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 60_000, clk.wall)
+    await simulate(cond, clk, 2_000)
+    party.recent_errors.clear()
+    fake.fail_pause = 403
+
+    await cond.skip("host_skip")  # não levanta
+
+    assert cond.current is None
+    assert party.recent_errors == [], "acusou problema onde não há"
+    await simulate(cond, clk, 2_000)  # e o laço continua vivo
+
+
+async def test_maestro_passivo_nao_pausa_o_que_nao_e_dele(
+    clk: FakeClock, guest: guests.Guest
+) -> None:
+    """RF-19. Em modo passivo quem está tocando é outro aparelho na mesma conta — pausar reabriria
+    exatamente a briga que os 3 strikes encerraram."""
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 60_000, clk.wall)
+    await simulate(cond, clk, 2_000)
+    cond._passive = True  # noqa: SLF001
+    fake.calls.clear()
+
+    await cond.skip("host_skip")
+
+    assert not [c for c in fake.calls if c[0] == "pause"]
 
 
 async def test_mudanca_externa_encerra_e_retoma_o_controle(

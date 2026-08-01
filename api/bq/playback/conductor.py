@@ -190,7 +190,9 @@ class Conductor:
             await self._end_play(cur, "finished")
             if nxt is not None:
                 await self._dispatch(nxt)  # RF-16, antecipado
-            # else: fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
+            else:
+                # Fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
+                await self._go_silent("finished")
 
     async def _notify_guard_edge(self) -> None:
         """A passagem do tempo não é evento neste sistema — e para o botão "Pular" ela é.
@@ -694,6 +696,8 @@ class Conductor:
             nxt = queue.peek_next()  # 3. escolhe
             if nxt is not None:
                 await self._dispatch(nxt)  # 4. só AGORA o HTTP
+            else:
+                await self._go_silent(reason)  # RF-17: pulou a última, então o som para
 
     async def force_play(self, track: TrackRow) -> Play | None:
         """RF-26. O host toca uma faixa AGORA, furando a fila.
@@ -723,6 +727,36 @@ class Conductor:
                 self.wake()
                 return None
             return self.current
+
+    async def _go_silent(self, motivo: str) -> None:
+        """RF-17 / ADR-005: fila vazia é SILÊNCIO — e silêncio é uma coisa que se PEDE ao Spotify.
+
+        Faltava. `_end_play` é banco e broadcast, e nunca fala com o Spotify (é o preço de ser a
+        saída única de um play); os dois lugares que ficavam sem próxima faixa tinham um `if nxt is
+        not None` sem `else`. Então o bq ficava `idle`, o /tv mostrava o QR de "sugira alguma
+        coisa", e a sala ouvia a música até o fim. Pior: no tick seguinte `_reconcile` tem
+        `cur is None` e retorna cedo (linha 553) — vê o Spotify tocando e não faz nada, sem strike
+        e sem log.
+
+        🔴 Não escreve `paused`. O flag de RF-28 persiste em `setting`, bloqueia todo despacho em
+        `_step` e faz `snapshot._stalled()` devolver "paused": a sugestão seguinte não tocaria e o
+        /tv diria "o anfitrião pausou" em vez da chamada de ADR-005. Aqui o estado continua `idle`
+        — ninguém pausou, a fila acabou. É o discriminante entre os dois requisitos, e é
+        verificável: depois disto, sugerir do celular tem de tocar sem ninguém apertar "Retomar".
+        """
+        if self._passive:
+            # RF-19: já desistimos de dirigir o player. Pausar reabriria exatamente a briga que os
+            # 3 strikes encerraram — e quem está tocando agora é outro aparelho, não nós.
+            return
+        try:
+            await self.spotify.pause()
+        except SpotifyError as e:
+            # 403 ("Restriction violated", já pausado) e 404 (sem device ativo) são os dois
+            # esperados aqui, e nenhum é acionável: o objetivo — não sair som — já está cumprido.
+            # Daí `info` e NÃO `party.note_error`, ao contrário de `pause()`: lá o host apertou um
+            # botão e espera efeito, aqui o cartão de saúde do /host não deve acusar problema
+            # quando não há problema.
+            _L.info("pause de silêncio recusado (%s): %s", motivo, e)
 
     async def pause(self) -> None:
         """RF-28. Com `paused=1` o maestro NÃO despacha — senão retomar a fila brigaria com a

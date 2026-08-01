@@ -43,6 +43,7 @@ class FakeSpotify:
         self.fail_play: int | None = None  # status a injetar no PRÓXIMO play, uma vez
         self.fail_play_uris: dict[str, int] = {}  # faixa que falha sempre (região, catálogo)
         self.fail_poll = False  # simula falha de rede no GET /me/player
+        self.fail_pause: int | None = None  # status a injetar no pause, sempre (403 já pausado, 404 sem device)
 
     # --- device ---------------------------------------------------------------------------
 
@@ -77,6 +78,8 @@ class FakeSpotify:
 
     async def pause(self) -> None:
         self.calls.append(("pause", self.playing or ""))
+        if self.fail_pause is not None:
+            raise SpotifyError(self.fail_pause, "injetado")
         # 🔴 Congela a posição junto. O Spotify real para de avançar `progress_ms` numa pausa; um
         # duplo que continua andando faz a faixa "acabar" pausada — o poll devolve corpo vazio, e
         # `_reconcile` fecha o play com `finished`. Um terceiro estado que não existe no Spotify.
