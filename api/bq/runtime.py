@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .spotify.auth import Auth
     from .spotify.client import SpotifyClient
     from .spotify.device import DeviceResolver
-    from .ws import Hub
+    from .view.ws import Hub
 
 conductor: Conductor | None = None
 spotify: SpotifyClient | None = None

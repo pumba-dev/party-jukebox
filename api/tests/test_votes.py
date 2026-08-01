@@ -9,13 +9,14 @@ from typing import Any
 
 import pytest
 
-from bq import runtime, votes, ws
+from bq import runtime, votes
 from bq.conductor import POLL_INTERVAL_MS, Conductor
 from bq.core import db
 from bq.core.errors import ApiError
 from bq.domain import guards, guests, queue
 from bq.domain.party import S, party
 from bq.domain.play import PlayState
+from bq.view import ws
 
 from .conftest import FakeClock, make_track
 from .fake_spotify import FakeSpotify
@@ -57,7 +58,7 @@ def espiao_de_broadcast(monkeypatch: pytest.MonkeyPatch, clk: FakeClock) -> list
         vistos.append(Borda(None if r is None else r[0], clk.mono))
         await real()
 
-    monkeypatch.setattr("bq.ws.notify", espiao)
+    monkeypatch.setattr("bq.view.ws.notify", espiao)
     return vistos
 
 
@@ -371,7 +372,7 @@ async def test_blocked_reason_do_snapshot_bate_com_a_recusa(clk: FakeClock, base
     """O botão do celular explica-se ANTES de ser tocado, e o motivo tem de ser o MESMO que o
     servidor usaria para recusar — senão o botão diz "pode votar" e o POST devolve 409, o que
     para o convidado é o app estar quebrado."""
-    from bq import snapshot
+    from bq.view import snapshot
 
     cond, _, votantes = await tocando(clk)
     cur = cond.current
@@ -409,7 +410,7 @@ async def test_ajustar_limiar_ao_vivo_muda_o_necessario(clk: FakeClock, base: No
 def test_nomes_de_votantes_so_existem_na_rota_do_host(clk: FakeClock, base: None) -> None:
     """RF-25 / 06 §4: o snapshot NÃO contém a lista de nomes, então não há como vazar por
     descuido de template no /tv."""
-    from bq import snapshot
+    from bq.view import snapshot
 
     campos: set[str] = set()
 

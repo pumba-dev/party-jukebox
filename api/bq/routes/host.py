@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from .. import runtime, votes, ws
+from .. import runtime, votes
 from ..core import clock, db
 from ..core.config import settings
 from ..core.errors import ApiError
@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..domain.party import S, party
 from ..spotify.client import SpotifyError
+from ..view import ws
 
 router = APIRouter(prefix="/api/host", tags=["host"])
 

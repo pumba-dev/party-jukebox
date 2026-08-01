@@ -35,10 +35,7 @@ TOPO = 99
 # pelo verificador, então enquanto ele não estiver vazio a cobertura é parcial, de propósito.
 PENDENTE = {
     "bq.conductor",
-    "bq.history",
-    "bq.snapshot",
     "bq.votes",
-    "bq.ws",
 }
 
 

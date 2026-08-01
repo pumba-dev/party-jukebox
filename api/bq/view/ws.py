@@ -18,12 +18,13 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from . import runtime, snapshot
-from .core import log
-from .core.config import settings
-from .core.net import join_url, wifi_payload
-from .domain import guests
-from .domain.party import party
+from . import snapshot
+from .. import runtime
+from ..core import log
+from ..core.config import settings
+from ..core.net import join_url, wifi_payload
+from ..domain import guests
+from ..domain.party import party
 
 _L = log.get("ws")
 

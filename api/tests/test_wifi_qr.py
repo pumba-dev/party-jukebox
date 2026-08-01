@@ -128,7 +128,7 @@ def test_ssid_todo_hexadecimal_tambem(rede) -> None:
 
 def test_snapshot_carrega_qr_e_ssid(base: None, rede) -> None:
     """O /tv lê os dois do snapshot: o QR para escanear e o nome para confirmar a rede certa."""
-    from bq import snapshot
+    from bq.view import snapshot
 
     # `;` no SSID para provar que só o QR ganha escape. Senha com `s`, que não é dígito hexa:
     # com `abc` a regra das aspas dispararia e o assert ficaria sobre duas coisas ao mesmo tempo.
@@ -139,7 +139,7 @@ def test_snapshot_carrega_qr_e_ssid(base: None, rede) -> None:
 
 
 def test_snapshot_sem_rede_configurada(base: None, rede) -> None:
-    from bq import snapshot
+    from bq.view import snapshot
 
     rede("")
     s = snapshot.build(None).model_dump(by_alias=True)

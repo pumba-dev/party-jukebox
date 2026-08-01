@@ -12,13 +12,14 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 
-from bq import history, runtime
+from bq import runtime
 from bq.conductor import MAX_EXTERNAL_STRIKES, Conductor
 from bq.core import db
 from bq.domain import guests, queue
 from bq.domain.party import party
 from bq.domain.play import PlayState
 from bq.spotify.device import DeviceResolver
+from bq.view import history
 
 from .conftest import FakeClock
 from .fake_spotify import FakeSpotify
@@ -133,7 +134,7 @@ async def test_reativar_volta_a_despachar(clk: FakeClock, guest: guests.Guest) -
 
 async def test_snapshot_conta_por_que_a_fila_parou(clk: FakeClock, guest: guests.Guest) -> None:
     """Sem `stalled`, o /tv mostraria "a fila está vazia" com a fila cheia (models.py)."""
-    from bq import snapshot
+    from bq.view import snapshot
 
     cond, fake = build(clk)
     for n in range(1, 7):
@@ -151,7 +152,7 @@ async def test_snapshot_conta_por_que_a_fila_parou(clk: FakeClock, guest: guests
 
 async def test_pausa_do_host_tambem_aparece_no_stalled(clk: FakeClock, guest: guests.Guest) -> None:
     """A pausa de RF-28 tinha o mesmo bug de tela, e ele já existia antes de M2.3."""
-    from bq import snapshot
+    from bq.view import snapshot
     from bq.domain.party import S
 
     cond, fake = build(clk)

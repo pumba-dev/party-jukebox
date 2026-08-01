@@ -6,13 +6,14 @@ import sqlite3
 
 from fastapi import APIRouter, Request, Response
 
-from .. import runtime, votes, ws
+from .. import runtime, votes
 from ..core import clock
 from ..core.errors import ApiError
 from ..domain import guests, queue, tracks
+from ..view import ws
 from ..models import SessionIn, SessionOut, SuggestIn, SuggestOut, VoteIn, VoteOut
 from ..domain.party import S
-from ..snapshot import cooldown_until
+from ..view.snapshot import cooldown_until
 from .deps import CurrentGuest
 
 router = APIRouter(prefix="/api", tags=["convidado"])

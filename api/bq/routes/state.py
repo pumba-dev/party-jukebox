@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from .. import history, snapshot
 from ..domain import guests
 from ..domain.party import party
 from ..models import HistoryOut, StateSnapshot
+from ..view import history, snapshot
 from .deps import MaybeGuest
 from .host import COOKIE as HOST_COOKIE
 

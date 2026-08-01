@@ -5,7 +5,7 @@ Especificação normativa: .docs/05-api-http.md §4.
 
 from __future__ import annotations
 
-from . import runtime, ws
+from . import runtime
 from .core import clock, db
 from .core.errors import ApiError
 from .domain import guards
@@ -13,6 +13,7 @@ from .domain.guests import Guest
 from .domain.party import S
 from .domain.play import Play, PlayState
 from .models import VoteOut
+from .view import ws
 
 
 def count(play_id: int) -> int:
