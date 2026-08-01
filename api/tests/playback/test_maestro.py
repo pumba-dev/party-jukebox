@@ -65,6 +65,38 @@ async def test_204_nao_derruba_o_maestro(clk: FakeClock, guest: guests.Guest) ->
     assert cond.current.state is PlayState.PLAYING
 
 
+async def test_pausa_sobrevive_ao_poll_seguinte(clk: FakeClock, guest: guests.Guest) -> None:
+    """RF-28. A pausa tem de durar; e até agora ninguém tinha testado isso.
+
+    🔴 Os dois testes que chamavam `cond.pause()` só olhavam o flag `S.paused` e o `stalled` do
+    snapshot — nenhum avançava o relógio depois. E o duplo devolvia `is_playing=True` mesmo
+    pausado, então `_reconcile` devolvia o play a PLAYING no primeiro tick (conductor.py:594) e a
+    posição continuava andando: pausar no /host congelava a tela por 1 s e depois a barra voltava a
+    correr sobre uma música parada. Este teste é o que trava o duplo honesto.
+    """
+    cond, fake = build(clk)
+    enqueue(fake, guest.id, 1, 60_000, clk.wall)
+    await simulate(cond, clk, 2_000)
+    assert cond.current is not None and cond.current.state is PlayState.PLAYING
+    play_id, ouvido = cond.current.play_id, cond.current.heard_ms()
+
+    await cond.pause()
+    await simulate(cond, clk, 5_000)
+
+    cur = cond.current
+    assert cur is not None and cur.play_id == play_id, "a pausa não pode fechar o play"
+    assert cur.state is PlayState.PAUSED, "o tick seguinte devolveu a faixa a PLAYING"
+    assert cur.heard_ms() == ouvido, "o ouvido andou 5 s com a música parada"
+    assert ("pause", fake.playing) in fake.calls
+
+    await cond.resume()
+    await simulate(cond, clk, 2_000)
+
+    cur = cond.current
+    assert cur is not None and cur.state is PlayState.PLAYING
+    assert cur.heard_ms() >= ouvido + 2_000, "não voltou a contar de onde parou"
+
+
 async def test_falha_de_poll_nao_encerra_a_faixa(clk: FakeClock, guest: guests.Guest) -> None:
     """🔴 O teste que justifica `Poll.ok` existir separado de `Poll.playback is None`.
 

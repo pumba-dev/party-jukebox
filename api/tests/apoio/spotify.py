@@ -34,6 +34,7 @@ class FakeSpotify:
         self.started_wall = 0
         self.duration = 0
         self.paused = False
+        self.paused_at = 0  # posição congelada enquanto `paused` — ver `pause()`
 
         self.calls: list[tuple[str, str]] = []  # log para asserção de ordem
         self.starts: list[Started] = []
@@ -67,14 +68,26 @@ class FakeSpotify:
         self.playing = uri
         self.started_wall = self.clk.wall
         self.duration = self.durations.get(uri, 0)
+        # `PUT /me/player/play` com `uris` TOCA. Sem isto, um play despachado depois de uma pausa
+        # continuaria reportando `is_playing=False`, o `_reconcile` o marcaria PAUSED, e o cenário
+        # "a fila esvaziou, alguém sugeriu" seria intestável — que é justamente o de RF-17.
+        self.paused = False
+        self.paused_at = 0
         self.starts.append(Started(self.clk.wall, uri, self.duration))
 
     async def pause(self) -> None:
         self.calls.append(("pause", self.playing or ""))
+        # 🔴 Congela a posição junto. O Spotify real para de avançar `progress_ms` numa pausa; um
+        # duplo que continua andando faz a faixa "acabar" pausada — o poll devolve corpo vazio, e
+        # `_reconcile` fecha o play com `finished`. Um terceiro estado que não existe no Spotify.
+        if self.playing is not None and not self.paused:
+            self.paused_at = self.clk.wall - self.started_wall
         self.paused = True
 
     async def resume(self) -> None:
         self.calls.append(("resume", self.playing or ""))
+        if self.paused:
+            self.started_wall = self.clk.wall - self.paused_at  # re-ancora onde parou
         self.paused = False
 
     async def get_playback(self) -> Poll:
@@ -83,8 +96,8 @@ class FakeSpotify:
             return Poll(ok=False, playback=None, error="rede injetada")
         if self.playing is None:
             return Poll(ok=True, playback=None)  # 204, corpo vazio (07 §6)
-        pos = self.clk.wall - self.started_wall
-        if pos >= self.duration:
+        pos = self.paused_at if self.paused else self.clk.wall - self.started_wall
+        if not self.paused and pos >= self.duration:
             self.playing = None
             return Poll(ok=True, playback=None)
         return Poll(
@@ -92,7 +105,11 @@ class FakeSpotify:
             playback=Playback(
                 track_id=self.playing.rsplit(":", 1)[-1],
                 track_uri=self.playing,
-                is_playing=True,
+                # 🔴 `not self.paused`, e não `True`. Com `True` fixo, `Conductor.pause()` marcava o
+                # play PAUSED e o tick seguinte o devolvia a PLAYING (conductor.py:594) — a pausa de
+                # RF-28 durava até o próximo poll e nenhum teste via, porque nenhum avançava o
+                # relógio depois de pausar.
+                is_playing=not self.paused,
                 progress_ms=pos,
                 duration_ms=self.duration,
                 playing_type="track",
