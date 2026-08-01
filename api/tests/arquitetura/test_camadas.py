@@ -30,13 +30,14 @@ RAIZ_FOLHA = {"bq.models", "bq.runtime"}
 RAIZ_TOPO = {"bq", "bq.app", "bq.__main__"}
 TOPO = 99
 
-# 🔴 Módulos ainda na raiz, à espera da camada deles. Este conjunto ENCOLHE a cada commit da
-# reorganização e termina vazio — é o registro revisável da migração. Um módulo aqui é ignorado
-# pelo verificador, então enquanto ele não estiver vazio a cobertura é parcial, de propósito.
-PENDENTE = {
-    "bq.conductor",
-    "bq.votes",
-}
+# 🔴 Vazio, e tem de continuar vazio.
+#
+# Existiu para a reorganização: cada commit movia uma pasta e encolhia este conjunto, e um módulo
+# listado aqui era IGNORADO pelo verificador. Agora que está vazio, R1..R7 valem para o pacote
+# inteiro, sem exceção. Se você precisar acrescentar um nome aqui para a suíte passar, o que você
+# está fazendo é desligar o verificador — o que provavelmente significa que a camada do módulo
+# novo está errada, não que a regra está.
+PENDENTE: set[str] = set()
 
 
 def _nivel(nome: str) -> int | None:

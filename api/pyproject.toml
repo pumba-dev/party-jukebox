@@ -49,8 +49,8 @@ module = [
     "bq.core.clock",
     "bq.domain.play",
     "bq.domain.queue",
-    "bq.votes",
-    "bq.conductor",
+    "bq.playback.votes",
+    "bq.playback.conductor",
 ]
 strict = true
 

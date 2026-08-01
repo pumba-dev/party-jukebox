@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .conductor import Conductor
+    from .playback.conductor import Conductor
     from .spotify.auth import Auth
     from .spotify.client import SpotifyClient
     from .spotify.device import DeviceResolver

@@ -13,11 +13,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bq import runtime
-from bq.conductor import MAX_EXTERNAL_STRIKES, Conductor
 from bq.core import db
 from bq.domain import guests, queue
 from bq.domain.party import party
 from bq.domain.play import PlayState
+from bq.playback.conductor import MAX_EXTERNAL_STRIKES, Conductor
 from bq.spotify.device import DeviceResolver
 from bq.view import history
 

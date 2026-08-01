@@ -18,7 +18,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     async def sem_maestro(self: object) -> None:  # o maestro tem teste próprio
         return None
 
-    monkeypatch.setattr("bq.conductor.Conductor.run_forever", sem_maestro)
+    monkeypatch.setattr("bq.playback.conductor.Conductor.run_forever", sem_maestro)
     monkeypatch.setattr(settings, "db_path", tmp_path / "api.db")
     monkeypatch.setattr(settings, "tokens_path", tmp_path / ".tokens.json")
     db.close()

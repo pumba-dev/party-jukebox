@@ -9,13 +9,14 @@ from typing import Any
 
 import pytest
 
-from bq import runtime, votes
-from bq.conductor import POLL_INTERVAL_MS, Conductor
+from bq import runtime
 from bq.core import db
 from bq.core.errors import ApiError
 from bq.domain import guards, guests, queue
 from bq.domain.party import S, party
 from bq.domain.play import PlayState
+from bq.playback import votes
+from bq.playback.conductor import POLL_INTERVAL_MS, Conductor
 from bq.view import ws
 
 from .conftest import FakeClock, make_track

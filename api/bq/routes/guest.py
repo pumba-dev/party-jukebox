@@ -6,10 +6,11 @@ import sqlite3
 
 from fastapi import APIRouter, Request, Response
 
-from .. import runtime, votes
+from .. import runtime
 from ..core import clock
 from ..core.errors import ApiError
 from ..domain import guests, queue, tracks
+from ..playback import votes
 from ..view import ws
 from ..models import SessionIn, SessionOut, SuggestIn, SuggestOut, VoteIn, VoteOut
 from ..domain.party import S

@@ -14,11 +14,12 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from .. import runtime, votes
+from .. import runtime
 from ..core import clock, db
 from ..core.config import settings
 from ..core.errors import ApiError
 from ..domain import guards, queue, tracks
+from ..playback import votes
 from ..models import (
     ForcePlayIn,
     ForcePlayOut,
