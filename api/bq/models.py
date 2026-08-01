@@ -275,3 +275,93 @@ class SettingsFull(Model):
     min_remaining_ms: int
     min_heard_ms: int
     paused: bool
+
+
+# --- saúde (RNF-27) ---------------------------------------------------------------------------
+#
+# 🔴 Isto era um `dict[str, Any]` e o /host o lia com seis `as` à mão. A aba Saúde renderiza doze
+# destes campos, e mais dez `as` seria dívida garantida — um campo renomeado aqui chegaria
+# `undefined` na tela, em silêncio, na noite da festa. Tipado, quebra o `npm run build`, que é o
+# ponto do ADR-006.
+
+
+class DeviceOut(Model):
+    """O device Connect resolvido. Serve `/health` e `/device/resolve` — é a mesma coisa, e ter
+    dois modelos idênticos seria o começo de eles divergirem."""
+
+    id: str
+    name: str
+    resolved_at_ms: int
+
+
+class HealthConductor(Model):
+    alive: bool
+    passive: bool
+    restarts: int
+    external_strikes: int
+
+
+class HealthPlayer(Model):
+    play_id: int
+    state: str
+    track: str
+    heard_ms: int
+    duration_ms: int
+    blocked_reason: Literal["PROTECTED", "TOO_EARLY", "ALMOST_OVER", "SKIP_COOLDOWN"] | None
+
+
+class HealthPoll(Model):
+    ago_ms: int | None
+    ok: bool
+
+
+class HealthSpotify(Model):
+    token_expires_in_s: int
+    recent_errors: list[str]
+
+
+class HostHealth(Model):
+    """RNF-27. `passive` e `restarts` existem por causa de RNF-11: quando o maestro morre e
+    renasce, ou desiste, **tudo continua parecendo saudável** — a API responde, a fila aparece, os
+    votos contam — e nada toca."""
+
+    device: DeviceOut | None
+    device_error: str | None
+    conductor: HealthConductor
+    player: HealthPlayer | None
+    last_poll: HealthPoll
+    spotify: HealthSpotify
+    # Chaves dinâmicas de propósito: são os nomes de INV-1..INV-7 como `db.check_invariants()` os
+    # devolve. Fixá-los aqui obrigaria a mexer em dois arquivos para acrescentar um invariante, e o
+    # /host itera sobre o que vier.
+    invariants: dict[str, int]
+    guests_online: int
+    connections: int
+    queue_size: int
+    settings: SettingsFull
+
+
+class SpotifyCheckDevice(Model):
+    id: str
+    name: str
+    active: bool
+
+
+class SpotifyCheckPlaying(Model):
+    uri: str | None
+    is_playing: bool
+
+
+class SpotifyCheckOut(Model):
+    """O diagnóstico de "por que não sai som", numa tacada.
+
+    🔴 Duas chamadas VIVAS ao Spotify (`get_playback` + `list_devices`), então é botão e nunca
+    entra num poll: a 3 s seriam 40 chamadas por minuto contra um cliente com backoff por
+    prioridade, e 429 no meio da festa.
+    """
+
+    poll_ok: bool
+    poll_error: str | None
+    playing: SpotifyCheckPlaying | None
+    devices: list[SpotifyCheckDevice]
+    devices_error: str | None

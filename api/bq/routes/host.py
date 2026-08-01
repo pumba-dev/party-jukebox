@@ -10,7 +10,7 @@ ridículos; para "impedir que o atalho seja descoberto por acidente", são exata
 from __future__ import annotations
 
 import secrets
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
 
@@ -21,11 +21,20 @@ from ..core.errors import ApiError
 from ..domain import guards, queue, tracks
 from ..playback import votes
 from ..models import (
+    DeviceOut,
     ForcePlayIn,
     ForcePlayOut,
+    HealthConductor,
+    HealthPlayer,
+    HealthPoll,
+    HealthSpotify,
+    HostHealth,
     PinIn,
     SettingsFull,
     SettingsPatch,
+    SpotifyCheckDevice,
+    SpotifyCheckOut,
+    SpotifyCheckPlaying,
     Voter,
     VotersOut,
 )
@@ -225,7 +234,7 @@ async def host_clear_queue(_: Host) -> dict[str, int]:
 
 
 @router.post("/device/resolve")
-async def resolve_device(_: Host) -> dict[str, Any]:
+async def resolve_device(_: Host) -> DeviceOut:
     """O botão de "reabri o Spotify, tenta de novo" — a ação de recuperação mais provável da
     noite, e a razão de o device ser guardado por NOME e não por id (07 §3)."""
     resolver = runtime.require_device()
@@ -238,11 +247,11 @@ async def resolve_device(_: Host) -> dict[str, Any]:
             f"Não achei o device {resolver.name!r}. O Spotify está aberto e logado?",
             deviceName=resolver.name,
         )
-    return {"id": dev.id, "name": dev.name, "resolvedAtMs": dev.resolved_at_ms}
+    return DeviceOut(id=dev.id, name=dev.name, resolved_at_ms=dev.resolved_at_ms)
 
 
 @router.get("/health")
-async def health(_: Host) -> dict[str, Any]:
+async def health(_: Host) -> HostHealth:
     """RNF-27. `passive` e `restarts` existem por causa de RNF-11: quando o maestro morre e
     renasce, ou desiste, **tudo continua parecendo saudável** — a API responde, a fila aparece,
     os votos contam — e nada toca. Sem esses dois números você fica olhando uma tela verde numa
@@ -251,59 +260,76 @@ async def health(_: Host) -> dict[str, Any]:
     dev = runtime.require_device()
     cur = cond.current
     blocked = guards.blocked(cur) if cur is not None else None
-    return {
-        "device": None
+    return HostHealth(
+        device=None
         if dev.current is None
-        else {"name": dev.current.name, "id": dev.current.id, "resolvedAtMs": dev.current.resolved_at_ms},
-        "deviceError": dev.last_error,
-        "conductor": {
-            "alive": True,
-            "passive": cond.passive,
-            "restarts": party.conductor_restarts,
-            "externalStrikes": party.external_strikes,
-        },
-        "player": None
+        else DeviceOut(
+            id=dev.current.id, name=dev.current.name, resolved_at_ms=dev.current.resolved_at_ms
+        ),
+        device_error=dev.last_error,
+        conductor=HealthConductor(
+            alive=True,
+            passive=cond.passive,
+            restarts=party.conductor_restarts,
+            external_strikes=party.external_strikes,
+        ),
+        player=None
         if cur is None
-        else {
-            "playId": cur.play_id,
-            "state": cur.state.value,
-            "track": cur.track.name,
-            "heardMs": cur.heard_ms(),
-            "durationMs": cur.duration_ms,
-            "blockedReason": None if blocked is None else blocked[0],
-        },
-        "lastPoll": {
-            "agoMs": None
+        else HealthPlayer(
+            play_id=cur.play_id,
+            state=cur.state.value,
+            track=cur.track.name,
+            heard_ms=cur.heard_ms(),
+            duration_ms=cur.duration_ms,
+            blocked_reason=None if blocked is None else blocked[0],
+        ),
+        last_poll=HealthPoll(
+            ago_ms=None
             if not party.last_poll_at_mono
             else clock.mono_ms() - party.last_poll_at_mono,
-            "ok": party.last_poll_ok,
-        },
-        "spotify": {
-            "tokenExpiresInS": (runtime.auth.expires_in_ms // 1000) if runtime.auth else 0,
-            "recentErrors": party.recent_errors[-5:],
-        },
-        "invariants": db.check_invariants(),
-        "guestsOnline": runtime.hub.guests_online() if runtime.hub else 0,
-        "connections": len(runtime.hub.conns) if runtime.hub else 0,
-        "queueSize": queue.size(),
-        "settings": _settings_out().model_dump(by_alias=True),
-    }
+            ok=party.last_poll_ok,
+        ),
+        spotify=HealthSpotify(
+            token_expires_in_s=(runtime.auth.expires_in_ms // 1000) if runtime.auth else 0,
+            recent_errors=party.recent_errors[-5:],
+        ),
+        invariants=db.check_invariants(),
+        guests_online=runtime.hub.guests_online() if runtime.hub else 0,
+        connections=len(runtime.hub.conns) if runtime.hub else 0,
+        queue_size=queue.size(),
+        settings=_settings_out(),
+    )
 
 
 @router.get("/spotify-check")
-async def spotify_check(_: Host) -> dict[str, Any]:
-    """Diagnóstico de uma tacada: o que o Spotify diz estar tocando e quais devices existem."""
+async def spotify_check(_: Host) -> SpotifyCheckOut:
+    """Diagnóstico de uma tacada: o que o Spotify diz estar tocando e quais devices existem.
+
+    🔴 Botão, nunca poll — ver o docstring de `SpotifyCheckOut`.
+
+    O erro da listagem vai num campo PRÓPRIO. Antes ele entrava na lista `devices` como
+    `[{"erro": …}]`, o que fazia "nenhum device" e "não consegui perguntar" terem a mesma forma na
+    tela — e são os dois diagnósticos opostos que esta rota existe para separar.
+    """
     client = runtime.require_spotify()
     poll = await client.get_playback()
+    devices: list[SpotifyCheckDevice] = []
+    erro: str | None = None
     try:
-        devices = [{"id": d.id, "name": d.name, "active": d.is_active} for d in await client.list_devices()]
+        devices = [
+            SpotifyCheckDevice(id=d.id, name=d.name, active=d.is_active)
+            for d in await client.list_devices()
+        ]
     except SpotifyError as e:
-        devices = [{"erro": str(e)}]
-    return {
-        "pollOk": poll.ok,
-        "pollError": poll.error,
-        "playing": None
+        erro = str(e)
+    return SpotifyCheckOut(
+        poll_ok=poll.ok,
+        poll_error=poll.error,
+        playing=None
         if poll.playback is None
-        else {"uri": poll.playback.track_uri, "isPlaying": poll.playback.is_playing},
-        "devices": devices,
-    }
+        else SpotifyCheckPlaying(
+            uri=poll.playback.track_uri, is_playing=poll.playback.is_playing
+        ),
+        devices=devices,
+        devices_error=erro,
+    )

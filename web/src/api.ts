@@ -100,7 +100,10 @@ export const api = {
 
   host: {
     login: (pin: string) => req<{ ok: boolean }>('/api/host/session', 'POST', { pin }),
-    health: () => req<Record<string, unknown>>('/api/host/health'),
+    // Tipado desde o pydantic. Era `Record<string, unknown>` com seis `as` no HostView, e a aba
+    // Saúde renderiza doze destes campos: agora um campo renomeado no backend quebra o
+    // `npm run build` em vez de chegar `undefined` na tela no meio da festa (ADR-006).
+    health: () => req<Schemas['HostHealth']>('/api/host/health'),
     settings: () => req<Schemas['SettingsFull']>('/api/host/settings'),
     patch: (patch: Schemas['SettingsPatch']) =>
       req<Schemas['SettingsFull']>('/api/host/settings', 'PATCH', patch),
@@ -115,10 +118,19 @@ export const api = {
     // RF-30
     bump: (suggestionId: number) =>
       req<{ ok: boolean }>(`/api/host/suggestions/${suggestionId}/bump`, 'POST'),
+    // O par do bump: para o FIM da fila, não uma posição para baixo — a ordenação é
+    // `rank, suggested_at` e empate é o caso normal do round-rank, então "uma posição" seria uma
+    // promessa que ela não cumpre.
+    last: (suggestionId: number) =>
+      req<{ ok: boolean }>(`/api/host/suggestions/${suggestionId}/last`, 'POST'),
+    clearQueue: () => req<{ removed: number }>('/api/host/queue', 'DELETE'),
     // RF-19 · sai do modo passivo. Deliberado e não temporizado: quem resolve o conflito é uma
     // pessoa fechando o outro app, então é uma pessoa que diz quando acabou.
     reactivate: () => req<{ ok: boolean }>('/api/host/reactivate', 'POST'),
-    resolveDevice: () => req<Record<string, unknown>>('/api/host/device/resolve', 'POST'),
+    resolveDevice: () => req<Schemas['DeviceOut']>('/api/host/device/resolve', 'POST'),
+    // 🔴 Botão, NUNCA num poll: faz duas chamadas vivas ao Spotify (get_playback + list_devices).
+    // A 3 s seriam 40 por minuto contra um cliente com backoff por prioridade, e 429 na festa.
+    spotifyCheck: () => req<Schemas['SpotifyCheckOut']>('/api/host/spotify-check'),
   },
 }
 

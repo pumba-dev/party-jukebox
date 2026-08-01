@@ -775,9 +775,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Resolve Device Api Host Device Resolve Post"
+                  "$ref": "#/components/schemas/DeviceOut"
                 }
               }
             }
@@ -799,9 +797,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Health Api Host Health Get"
+                  "$ref": "#/components/schemas/HostHealth"
                 }
               }
             }
@@ -815,7 +811,7 @@
           "host"
         ],
         "summary": "Spotify Check",
-        "description": "Diagnóstico de uma tacada: o que o Spotify diz estar tocando e quais devices existem.",
+        "description": "Diagnóstico de uma tacada: o que o Spotify diz estar tocando e quais devices existem.\n\n🔴 Botão, nunca poll — ver o docstring de `SpotifyCheckOut`.\n\nO erro da listagem vai num campo PRÓPRIO. Antes ele entrava na lista `devices` como\n`[{\"erro\": …}]`, o que fazia \"nenhum device\" e \"não consegui perguntar\" terem a mesma forma na\ntela — e são os dois diagnósticos opostos que esta rota existe para separar.",
         "operationId": "spotify_check_api_host_spotify_check_get",
         "responses": {
           "200": {
@@ -823,9 +819,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Spotify Check Api Host Spotify Check Get"
+                  "$ref": "#/components/schemas/SpotifyCheckOut"
                 }
               }
             }
@@ -836,6 +830,30 @@
   },
   "components": {
     "schemas": {
+      "DeviceOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "resolvedAtMs": {
+            "type": "integer",
+            "title": "Resolvedatms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "resolvedAtMs"
+        ],
+        "title": "DeviceOut",
+        "description": "O device Connect resolvido. Serve `/health` e `/device/resolve` — é a mesma coisa, e ter\ndois modelos idênticos seria o começo de eles divergirem."
+      },
       "ForcePlayIn": {
         "properties": {
           "trackId": {
@@ -879,6 +897,131 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthConductor": {
+        "properties": {
+          "alive": {
+            "type": "boolean",
+            "title": "Alive"
+          },
+          "passive": {
+            "type": "boolean",
+            "title": "Passive"
+          },
+          "restarts": {
+            "type": "integer",
+            "title": "Restarts"
+          },
+          "externalStrikes": {
+            "type": "integer",
+            "title": "Externalstrikes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "alive",
+          "passive",
+          "restarts",
+          "externalStrikes"
+        ],
+        "title": "HealthConductor"
+      },
+      "HealthPlayer": {
+        "properties": {
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "track": {
+            "type": "string",
+            "title": "Track"
+          },
+          "heardMs": {
+            "type": "integer",
+            "title": "Heardms"
+          },
+          "durationMs": {
+            "type": "integer",
+            "title": "Durationms"
+          },
+          "blockedReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "PROTECTED",
+                  "TOO_EARLY",
+                  "ALMOST_OVER",
+                  "SKIP_COOLDOWN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedreason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "state",
+          "track",
+          "heardMs",
+          "durationMs",
+          "blockedReason"
+        ],
+        "title": "HealthPlayer"
+      },
+      "HealthPoll": {
+        "properties": {
+          "agoMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agoms"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agoMs",
+          "ok"
+        ],
+        "title": "HealthPoll"
+      },
+      "HealthSpotify": {
+        "properties": {
+          "tokenExpiresInS": {
+            "type": "integer",
+            "title": "Tokenexpiresins"
+          },
+          "recentErrors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recenterrors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tokenExpiresInS",
+          "recentErrors"
+        ],
+        "title": "HealthSpotify"
       },
       "HistoryItem": {
         "properties": {
@@ -1002,6 +1145,88 @@
           "skipped"
         ],
         "title": "HistorySummary"
+      },
+      "HostHealth": {
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deviceError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceerror"
+          },
+          "conductor": {
+            "$ref": "#/components/schemas/HealthConductor"
+          },
+          "player": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HealthPlayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastPoll": {
+            "$ref": "#/components/schemas/HealthPoll"
+          },
+          "spotify": {
+            "$ref": "#/components/schemas/HealthSpotify"
+          },
+          "invariants": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Invariants"
+          },
+          "guestsOnline": {
+            "type": "integer",
+            "title": "Guestsonline"
+          },
+          "connections": {
+            "type": "integer",
+            "title": "Connections"
+          },
+          "queueSize": {
+            "type": "integer",
+            "title": "Queuesize"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SettingsFull"
+          }
+        },
+        "type": "object",
+        "required": [
+          "device",
+          "deviceError",
+          "conductor",
+          "player",
+          "lastPoll",
+          "spotify",
+          "invariants",
+          "guestsOnline",
+          "connections",
+          "queueSize",
+          "settings"
+        ],
+        "title": "HostHealth",
+        "description": "RNF-27. `passive` e `restarts` existem por causa de RNF-11: quando o maestro morre e\nrenasce, ou desiste, **tudo continua parecendo saudável** — a API responde, a fila aparece, os\nvotos contam — e nada toca."
       },
       "Me": {
         "properties": {
@@ -1585,6 +1810,111 @@
           "youVoted"
         ],
         "title": "SkipState"
+      },
+      "SpotifyCheckDevice": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "active"
+        ],
+        "title": "SpotifyCheckDevice"
+      },
+      "SpotifyCheckOut": {
+        "properties": {
+          "pollOk": {
+            "type": "boolean",
+            "title": "Pollok"
+          },
+          "pollError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pollerror"
+          },
+          "playing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpotifyCheckPlaying"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/SpotifyCheckDevice"
+            },
+            "type": "array",
+            "title": "Devices"
+          },
+          "devicesError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deviceserror"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pollOk",
+          "pollError",
+          "playing",
+          "devices",
+          "devicesError"
+        ],
+        "title": "SpotifyCheckOut",
+        "description": "O diagnóstico de \"por que não sai som\", numa tacada.\n\n🔴 Duas chamadas VIVAS ao Spotify (`get_playback` + `list_devices`), então é botão e nunca\nentra num poll: a 3 s seriam 40 chamadas por minuto contra um cliente com backoff por\nprioridade, e 429 no meio da festa."
+      },
+      "SpotifyCheckPlaying": {
+        "properties": {
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri"
+          },
+          "isPlaying": {
+            "type": "boolean",
+            "title": "Isplaying"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "isPlaying"
+        ],
+        "title": "SpotifyCheckPlaying"
       },
       "StateSnapshot": {
         "properties": {
