@@ -22,6 +22,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiError, api, faltam, mmss, type SearchResult } from '@/api'
 import Abas from '@/components/Abas.vue'
 import CampoSelect from '@/components/CampoSelect.vue'
+import Kpi from '@/components/Kpi.vue'
 import { useNow, useProjected } from '@/composables/useClock'
 import { GRUPOS, REFERENCIA_MS, type Chave } from '@/regras'
 import { useParty } from '@/stores/party'
@@ -221,6 +222,56 @@ async function limparFila(): Promise<void> {
   await acao('fila', api.host.clearQueue)
   confirmandoLimpar.value = false
 }
+
+// --- diagnóstico do Spotify --------------------------------------------------------------------
+//
+// 🔴 Botão, e NUNCA no poll de 3 s: `GET /api/host/spotify-check` faz duas chamadas vivas ao Spotify
+// (`get_playback` + `list_devices`). A 3 s seriam 40 por minuto contra um cliente com backoff por
+// prioridade, e 429 no meio da festa — justamente quando você foi olhar porque algo está errado.
+const diag = ref<components['schemas']['SpotifyCheckOut'] | null>(null)
+
+async function diagnosticar(): Promise<void> {
+  await acao('saude', async () => {
+    diag.value = await api.host.spotifyCheck()
+  })
+}
+
+/** Rótulos dos KPIs. Cada um responde uma pergunta que o host faz de pé, olhando a caixa muda. */
+const kpis = computed(() => {
+  const c = cond.value
+  const p = poll.value
+  const inv = invariantesRuins.value.length
+  return [
+    {
+      rotulo: device.value ? 'device' : 'device NÃO achado',
+      valor: device.value?.name ?? '—',
+      estado: device.value ? ('ok' as const) : ('aviso' as const),
+    },
+    {
+      rotulo: c?.restarts ? `maestro · ${c.restarts} reinícios` : 'maestro',
+      valor: c?.passive ? 'passivo' : 'ativo',
+      estado: c?.passive ? ('ruim' as const) : c?.restarts ? ('aviso' as const) : ('ok' as const),
+    },
+    {
+      rotulo: 'último poll',
+      valor: p ? `${p.ok ? '' : 'erro '}${Math.round((p.agoMs ?? 0) / 1000)}s` : '—',
+      estado: p?.ok === false ? ('aviso' as const) : ('ok' as const),
+    },
+    {
+      rotulo: inv ? 'invariantes FURADOS' : 'invariantes',
+      valor: inv ? String(inv) : 'ok',
+      estado: inv ? ('ruim' as const) : ('ok' as const),
+    },
+  ]
+})
+
+/** O token do Spotify. Já vinha no `/health` desde M2 e nenhuma tela mostrava — e "o token expira
+ *  em 4 minutos" é exatamente o que explica a festa parar de despachar no meio da noite. */
+const token = computed(() => {
+  const s = saude.value?.spotify.tokenExpiresInS
+  if (s === undefined) return null
+  return { texto: s <= 0 ? 'expirado' : `${Math.floor(s / 60)} min`, ruim: s <= 0, aviso: s < 300 }
+})
 
 onMounted(() => {
   if (ehAba(route.query.aba)) aba.value = route.query.aba
@@ -537,38 +588,99 @@ const janela = computed(() => {
       <div v-show="aba === 'saude'" class="flex flex-col gap-4">
         <p v-if="erro?.aba === 'saude'" class="text-warn text-sm">{{ erro.texto }}</p>
 
-        <!-- RNF-27 · saúde num olhar -->
+        <!-- RNF-27 · saúde num olhar. Os quatro números que respondem "por que não está tocando". -->
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Kpi
+            v-for="k in kpis"
+            :key="k.rotulo"
+            :estado="k.estado"
+            :rotulo="k.rotulo"
+            :valor="k.valor"
+          />
+        </div>
+
         <section class="bg-card border-line rounded-2xl border p-4 text-sm">
-          <p class="text-mute text-xs font-semibold tracking-widest uppercase">Saúde</p>
+          <p class="text-mute text-xs font-semibold tracking-widest uppercase">Detalhe</p>
           <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
-            <dt class="text-mute">device</dt>
-            <dd :class="device ? '' : 'text-warn'">{{ device?.name ?? 'não encontrado' }}</dd>
-            <dt class="text-mute">maestro</dt>
-            <dd :class="cond?.passive ? 'text-warn' : ''">
-              {{ cond?.passive ? 'PASSIVO — não despacha' : 'ativo' }}
-              <span v-if="cond?.restarts" class="text-warn">· {{ cond.restarts }} reinícios</span>
+            <dt class="text-mute">token do Spotify expira em</dt>
+            <dd :class="token?.ruim ? 'text-hot' : token?.aviso ? 'text-warn' : ''">
+              {{ token?.texto ?? '—' }}
             </dd>
-            <dt class="text-mute">último poll</dt>
-            <dd :class="poll?.ok ? '' : 'text-warn'">
-              {{ poll?.ok ? 'ok' : 'FALHOU' }} · {{ Math.round((poll?.agoMs ?? 0) / 1000) }}s
+            <dt class="text-mute">na fila</dt>
+            <dd class="tabular-nums">{{ saude?.queueSize ?? '—' }}</dd>
+            <dt class="text-mute">pessoas / conexões</dt>
+            <dd class="tabular-nums">
+              {{ saude?.guestsOnline ?? '—' }} / {{ saude?.connections ?? '—' }}
             </dd>
-            <dt class="text-mute">conexões</dt>
-            <dd>{{ saude?.connections }}</dd>
-            <dt class="text-mute">invariantes</dt>
-            <dd :class="invariantesRuins.length ? 'text-warn' : ''">
-              {{ invariantesRuins.length ? invariantesRuins.map(([k]) => k).join(', ') : 'todos 0' }}
+            <dt class="text-mute">mudanças externas</dt>
+            <dd :class="cond?.externalStrikes ? 'text-warn' : ''">
+              {{ cond?.externalStrikes ?? 0 }} de 3
             </dd>
+            <template v-if="invariantesRuins.length">
+              <dt class="text-hot">quais invariantes</dt>
+              <dd class="text-hot">
+                {{ invariantesRuins.map(([k, v]) => `${k}=${v}`).join(', ') }}
+              </dd>
+            </template>
+            <template v-if="saude?.deviceError">
+              <dt class="text-warn">erro do device</dt>
+              <dd class="text-warn">{{ saude.deviceError }}</dd>
+            </template>
           </dl>
-          <button
-            class="border-line no-select mt-3 rounded-xl border px-4 py-2 text-sm font-semibold"
-            :disabled="ocupado"
-            @click="acao('saude', api.host.resolveDevice)"
-          >
-            Reabri o Spotify, procurar o device
-          </button>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              class="border-line no-select rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-40"
+              :disabled="ocupado"
+              @click="acao('saude', api.host.resolveDevice)"
+            >
+              Reabri o Spotify, procurar o device
+            </button>
+            <button
+              class="border-line no-select rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-40"
+              :disabled="ocupado"
+              @click="diagnosticar"
+            >
+              Diagnosticar
+            </button>
+          </div>
+
           <ul v-if="erros.length" class="text-mute mt-3 flex flex-col gap-0.5 text-xs">
             <li v-for="(e, i) in erros" :key="i" class="truncate">{{ e }}</li>
           </ul>
+        </section>
+
+        <!-- O resultado do diagnóstico. Responde "por que não sai som" sem olhar log: se o device
+             existe mas não está `active`, o problema é transferência; se não aparece na lista, o
+             Spotify desktop está fechado ou logado em outra conta. -->
+        <section v-if="diag" class="bg-card border-line rounded-2xl border p-4 text-sm">
+          <p class="text-mute text-xs font-semibold tracking-widest uppercase">
+            O que o Spotify respondeu
+          </p>
+          <p class="mt-2" :class="diag.pollOk ? '' : 'text-warn'">
+            {{ diag.pollOk ? 'Respondeu.' : `Não respondeu: ${diag.pollError ?? 'sem detalhe'}` }}
+            <span v-if="diag.playing" class="text-mute">
+              · tocando {{ diag.playing.isPlaying ? 'sim' : 'não (pausado)' }}
+            </span>
+            <span v-else-if="diag.pollOk" class="text-mute">· nada tocando</span>
+          </p>
+          <p v-if="diag.devicesError" class="text-warn mt-2">
+            Não consegui listar os devices: {{ diag.devicesError }}
+          </p>
+          <ul v-else-if="diag.devices.length" class="mt-2 flex flex-col gap-1">
+            <li v-for="d in diag.devices" :key="d.id" class="flex items-baseline gap-2">
+              <span class="w-3 shrink-0" :class="d.active ? 'text-accent' : ''">
+                {{ d.active ? '▸' : '' }}
+              </span>
+              <span class="min-w-0 flex-1 truncate">{{ d.name }}</span>
+              <span class="text-mute shrink-0 text-xs">
+                {{ d.active ? 'ativo' : 'disponível' }}
+              </span>
+            </li>
+          </ul>
+          <p v-else class="text-warn mt-2">
+            Nenhum device. Abra o app do Spotify no notebook e toque em qualquer música uma vez.
+          </p>
         </section>
       </div>
 
