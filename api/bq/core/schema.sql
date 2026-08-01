@@ -1,4 +1,4 @@
--- bq/schema.sql · executado e testado em SQLite 3.49.1
+-- bq/core/schema.sql · executado e testado em SQLite 3.49.1
 -- Fonte: .docs/04-modelo-de-dados.md §3. Não há migrações: mudou o schema, apaga party.db.
 
 PRAGMA foreign_keys = ON;

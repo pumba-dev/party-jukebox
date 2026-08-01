@@ -55,7 +55,7 @@ Python não oferece essa cortesia.)*
 | **RNF-09** | Progresso, prazos e guardas usam o relógio **monotônico**. Registros persistidos usam o relógio de **parede**. Nunca o contrário. |
 
 ```python
-# bq/clock.py — normativo. Nada de tempo entra no sistema por outro caminho.
+# bq/core/clock.py — normativo. Nada de tempo entra no sistema por outro caminho.
 import time
 
 def mono_ms() -> int:

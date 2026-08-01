@@ -29,22 +29,30 @@ Ferramenta: `pytest` + `pytest-asyncio`. Sem `httpx` real, sem banco em arquivo,
 substituem com `monkeypatch`:
 
 ```python
-# tests/conftest.py
+# tests/apoio/relogio.py
 class FakeClock:
     def __init__(self, t0: int = 1_700_000_000_000):
         self.mono = 5_000_000      # arbitrário; monotônico não tem significado absoluto
         self.wall = t0
-    def advance(self, ms: int) -> None:
-        self.mono += ms
+    def advance(self, ms: int) -> None:   # mono e wall JUNTOS: o duplo do Spotify deriva
+        self.mono += ms                   # progress_ms da parede, o maestro projeta do mono
         self.wall += ms
 
+# tests/conftest.py
 @pytest.fixture
 def clk(monkeypatch):
     c = FakeClock()
-    monkeypatch.setattr("bq.clock.mono_ms", lambda: c.mono)
-    monkeypatch.setattr("bq.clock.wall_ms", lambda: c.wall)
+    monkeypatch.setattr("bq.core.clock.mono_ms", lambda: c.mono)
+    monkeypatch.setattr("bq.core.clock.wall_ms", lambda: c.wall)
     return c
 ```
+
+🔴 **Estas duas strings são caminho-em-string, e têm dois modos de falha muito diferentes.** Mover
+`clock.py` sem atualizá-las falha ALTO (`AttributeError` na fixture). Deixar um **shim de
+re-export** no caminho antigo falha em SILÊNCIO: o patch acerta o shim, os consumidores continuam
+vendo a função real, e a suíte inteira passa medindo o relógio de verdade. É por isso que nenhum
+`__init__.py` de `bq/` re-exporta nada, e é por isso que existe `tests/arquitetura/test_relogio.py`
+— o único teste do projeto cujo trabalho é garantir que os outros testes não estão mentindo.
 
 **Por que `monkeypatch` e não injeção de dependência.** Passar um objeto `clock` por parâmetro
 contaminaria a assinatura de praticamente toda função do sistema — inclusive as que só existem para
@@ -56,7 +64,7 @@ um módulo chamar direto, o patch não o alcança e o teste passa medindo o rel�
 ### 2.2 Spotify falso · M1.15
 
 ```python
-# tests/fake_spotify.py
+# tests/apoio/spotify.py
 class FakeSpotify:
     """Substitui spotify/client.py inteiro. Modela device, playback e latência."""
     def __init__(self, clk: FakeClock, latency_ms: int = 200):
@@ -223,6 +231,14 @@ gente. Uma passada de ~30 min, com a JBL ligada e o monitor no lugar.
 | V10 | Esvaziar a fila | som para, `/tv` em tela cheia, "Tocar agora" resolve em 1 toque |
 | V11 | Wi-Fi do celular oscilando | reconecta sem recarregar |
 | V12 | Volume da JBL entre uma faixa antiga e uma moderna | ver o salto e decidir o volume base |
+| V13 | Botão "Pular" habilita **sozinho** quando a carência vence | faixa começando, olhar o contador terminar e o botão acender. **Votar no primeiro toque, sem 409** |
+| V14 | Botão "Pular" desabilita **sozinho** nos últimos 15 s | não tocar em nada, ver virar "já acabando"; só então tentar votar |
+| V15 | Celular NOVO: QR → apelido → sugerir | não volta para a tela do apelido, "Minhas" mostra a música, e o `/tv` passa a contar a pessoa em "N na festa" |
+
+**V13 a V15 cobrem os dois defeitos que a festa revelou** — a guarda de voto que não se anunciava e
+o socket que abre antes de existir sessão ([06 §6](06-realtime-websocket.md) e §7). V15 tem de ser
+num aparelho **sem cookie prévio**: em aba anônima, ou num celular que nunca abriu a página. Num
+aparelho que já entrou hoje o socket já nasce identificado e o defeito não reproduz.
 
 **V12 não tem correção em software.** O Spotify não normaliza loudness em device de terceiros, e o
 Connect não expõe ganho por faixa ([RNF, riscos](02-requisitos-nao-funcionais.md#8-riscos-aceitos-explicitamente)).

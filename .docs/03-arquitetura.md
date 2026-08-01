@@ -97,38 +97,86 @@ birthday-queue/
 │   ├── party.db               SQLite                                 (não versionar)
 │   ├── scripts/
 │   │   └── authorize.py       OAuth uma vez, listener em 127.0.0.1:8888
+│   ├── tests/                 espelha bq/ — ver §3.1
 │   └── bq/
-│       ├── __main__.py        uvicorn.run
-│       ├── app.py             FastAPI, mounts, lifespan
-│       ├── config.py          pydantic-settings
-│       ├── clock.py           mono_ms / wall_ms          ← normativo, RNF-07..09
-│       ├── db.py              conexão, WAL, bootstrap do schema
-│       ├── schema.sql
+│       ├── __init__.py        o MAPA das camadas e as sete regras  ← porta de entrada
+│       ├── __main__.py        uvicorn.run("bq.app:app")
+│       ├── app.py             FastAPI, mounts, lifespan, SPA fallback
 │       ├── models.py          pydantic — os tipos que o OpenAPI expõe
-│       ├── spotify/
+│       ├── runtime.py         os singletons do processo
+│       ├── core/              ← R2 · não sabe o que é uma festa
+│       │   ├── clock.py       mono_ms / wall_ms          ← normativo, RNF-07..09
+│       │   ├── config.py      pydantic-settings, valida no import
+│       │   ├── db.py          conexão, WAL, bootstrap do schema
+│       │   ├── errors.py      ApiError + o envelope único de erro
+│       │   ├── log.py         console + party.log
+│       │   ├── net.py         IP da LAN, join_url, QR de Wi-Fi
+│       │   ├── schema.sql     ← quatro regras de negócio vivem nos índices
+│       │   └── seeds.sql      limiares de jogo, idempotente
+│       ├── spotify/           ← R3 · não conhece o banco
 │       │   ├── auth.py        carrega e renova o token
 │       │   ├── client.py      httpx, retry, Retry-After, prioridade
-│       │   ├── device.py      resolução de device por nome
+│       │   ├── device.py      resolução de device por NOME
 │       │   └── search.py      busca + cache LRU
-│       ├── queue.py           round-rank, cooldown, dedupe
-│       ├── votes.py           guardas de skip
-│       ├── conductor.py       o maestro                  ← §4
-│       ├── ws.py              gerenciador de conexões, snapshot
-│       └── routes/
-│           ├── guest.py  host.py  search.py  state.py
+│       ├── domain/            ← R4 · as regras da festa
+│       │   ├── party.py       S (limiares recarregáveis) e o estado de runtime
+│       │   ├── guests.py      apelido + cookie
+│       │   ├── tracks.py      catálogo local
+│       │   ├── play.py        Play, PlayState, DISPATCH_LEAD_MS
+│       │   ├── queue.py       round-rank, cooldown, dedupe
+│       │   └── guards.py      guardas de skip, funções puras
+│       ├── view/              ← R5 · o que as TELAS recebem
+│       │   ├── snapshot.py    o construtor único do snapshot
+│       │   ├── history.py     RF-42, com o filtro de RF-25
+│       │   └── ws.py          gerenciador de conexões, broadcast
+│       ├── playback/          ← R6 · o que a CAIXA DE SOM recebe
+│       │   ├── conductor.py   o maestro                  ← §4
+│       │   └── votes.py       a ação de votar
+│       └── routes/            ← R1 · nada importa daqui
+│           ├── deps.py        identidade pelo cookie
+│           └── guest.py  host.py  search.py  state.py
 ├── web/
 │   ├── package.json  vite.config.ts  tsconfig.json
 │   └── src/
 │       ├── main.ts  router.ts  api.ts  ws.ts
 │       ├── stores/party.ts
+│       ├── composables/useClock.ts
 │       ├── types/
 │       │   ├── api.d.ts       GERADO do OpenAPI — não editar
 │       │   └── ws.ts          união discriminada, à mão
-│       ├── views/    GuestView.vue  TvView.vue  HostView.vue
+│       ├── views/    GuestView.vue  TvView.vue  HostView.vue  HistoricoView.vue
 │       └── components/
 ├── start.ps1
 └── .gitignore
 ```
+
+### 3.1 A pasta de testes espelha a de código
+
+O teste de X mora onde X mora. As duas exceções são deliberadas:
+
+```
+api/tests/
+├── conftest.py       TODAS as fixtures: env vars, clk, base, guest, client
+├── apoio/            os duplos e os atalhos: relogio, spotify, faixas, maestro, rotas
+├── arquitetura/      camadas (R1..R7), relogio (RNF-07), empacotamento
+├── core/  spotify/  domain/  playback/       espelho
+└── routes/           espelho, e onde vivem os testes ponta a ponta pelo TestClient
+```
+
+**Fixture no conftest, função em `apoio/`.** Fixture de conftest de raiz é herdada por toda
+subpasta; helper definido dentro de um módulo de teste só chega aos outros por import com `noqa`,
+e obriga a lembrar em qual teste ele nasceu. As funções ficam em `apoio/` e são importadas por
+nome — `simulate(cond, clk, ms)` recebe o relógio explicitamente e não ganharia nada sendo mágica.
+
+**Um `conftest.py` só, na raiz.** Não há fixture que seja de uma pasta só, e conftest por pasta é
+onde precedência vira mistério. 🔴 Consequência a respeitar: nenhum `__init__.py` de `tests/`
+pode importar `bq`, porque ele é importado ANTES do conftest — e o conftest precisa setar as
+variáveis de ambiente antes do primeiro import de `bq`, senão `config.py` valida contra o
+ambiente real. Há teste e há uma asserção de diagnóstico no próprio conftest.
+
+**Nomeado por assunto, nunca por marco.** `test_m2.py` existiu e cobria quatro requisitos sem
+relação nenhuma — mais um teste de SPA fallback perdido dentro da seção de histórico. Um arquivo
+nomeado por marco vira depósito.
 
 ## 4. O maestro  ← o coração do sistema
 
@@ -146,7 +194,7 @@ esse problema: só existe um prazo, e ele é sempre derivado do estado atual.
 ### 4.2 O laço
 
 ```python
-# bq/conductor.py — forma normativa
+# bq/playback/conductor.py — forma normativa
 POLL_INTERVAL_MS = 1_000
 DISPATCH_LEAD_MS =   150   # medir e ajustar; ver §4.4
 
@@ -318,32 +366,49 @@ Conexão única, `check_same_thread=False`, `PRAGMA journal_mode=WAL`, `PRAGMA s
 
 ## 6. Regras de dependência
 
+Uma **ordem total**, sem exceção em runtime. Ela não é aspiração: `tests/arquitetura/test_camadas.py`
+varre o pacote por AST e falha no commit que introduzir uma aresta subindo. Ver
+[ADR-010](adr/ADR-010-camadas-do-backend.md) para o porquê de cada fronteira.
+
 ```mermaid
 flowchart TD
-    R["routes/"] --> Q["queue.py"]
-    R --> V["votes.py"]
-    R --> C["conductor.py"]
-    R --> W["ws.py"]
-    C --> Q
-    C --> V
-    C --> SP["spotify/"]
-    C --> W
-    Q --> DB["db.py"]
-    V --> DB
-    SP --> CFG["config.py"]
-    Q --> CLK["clock.py"]
-    V --> CLK
-    C --> CLK
-    SP --> CLK
+    A["app.py"] --> R["routes/"]
+    R --> P["playback/"]
+    P --> V["view/"]
+    V --> D["domain/"]
+    D --> S["spotify/"]
+    S --> C["core/"]
+    R --> M["models.py"]
+    V --> M
+    D --> RT["runtime.py"]
 ```
 
-- **`clock.py` não importa nada.** É folha. É o que permite testar tudo o que depende de tempo
-  injetando um relógio falso ([10 §2](10-testes-e-validacao.md)).
-- **`spotify/` não conhece o banco.** Fala HTTP e devolve dataclasses. É o que permite substituir o
-  Spotify inteiro por um duplo em teste — a decisão de teste mais valiosa do projeto.
-- **`queue.py` e `votes.py` não conhecem HTTP nem o Spotify.** São regras puras sobre o banco: é aí
-  que moram o round-rank e as guardas de voto, os dois lugares com lógica que erra silenciosamente.
-- **nada importa `routes/`.**
+```
+models/runtime  <  core  <  spotify  <  domain  <  view  <  playback  <  routes  <  app
+```
+
+- **R1 · nada importa `routes/`.** A regra mais antiga do projeto: rota é folha do grafo, não
+  biblioteca. `app.py` é a exceção por definição — o trabalho dele é montar os routers.
+- **R2 · `core/` não importa nada de `bq` além de `core/`.** É a base, e nada aqui sabe o que é
+  uma festa: não há fila, nem convidado, nem faixa. `clock.py` em particular não importa nada, e
+  é o que permite injetar um relógio falso ([10 §2](10-testes-e-validacao.md)).
+- **R3 · `spotify/` não conhece o banco.** Fala HTTP e devolve dataclasses. É o que permite
+  substituir o Spotify inteiro por um duplo em teste — a decisão de teste mais valiosa do projeto.
+  Mora logo acima de `core/`, e é isso que faz `domain/tracks.py → spotify/client.py` ser uma
+  aresta descendente e legal em vez de uma exceção envergonhada.
+- **R4 · `domain/` não importa `models.py`, `view/`, `playback/` nem `routes/`.** São as regras da
+  festa: round-rank e guardas de voto, os dois lugares com lógica que erra silenciosamente. Não
+  importar `models.py` é o ponto fino — o que o OpenAPI expõe é contrato de fronteira, e regra que
+  depende de contrato deixa de ser regra e passa a ser apresentação.
+- **R5 · `view/` não importa `playback/` nem `routes/`.** É o que a tela recebe. Separado do
+  maestro pela assimetria de consumidores: o maestro é motor singleton (um importador), `snapshot`
+  e `ws` são serviço compartilhado (cinco).
+- **R6 · `playback/` não importa `routes/`.** É o que a caixa de som recebe.
+- **R7 · `models.py` e `runtime.py` não importam nada de `bq` em runtime.** É o critério
+  verificável que os autoriza a morar na raiz, e o que impede a raiz de voltar a ser lixeira.
+
+O único escape é `if TYPE_CHECKING:` — o bloco não roda. Sobra exatamente **um** no projeto,
+`runtime.py`, onde a inversão é a arquitetura e não um remendo.
 
 ## 7. Configuração
 

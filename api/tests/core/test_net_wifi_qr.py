@@ -1,4 +1,4 @@
-"""O QR que conecta o celular na rede da festa (bq/net.py).
+"""O QR que conecta o celular na rede da festa (bq/core/net.py).
 
 Por que isto merece testes, sendo cinco linhas de string: um QR de Wi-Fi errado **escaneia
 perfeitamente**. O celular mostra "conectar-se à rede", a pessoa toca, e falha — ou pior, entra

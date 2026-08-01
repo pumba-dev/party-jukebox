@@ -124,13 +124,13 @@ class SettingsOut(Model):
 class StateSnapshot(Model):
     """O que `GET /api/state` devolve e o que o WebSocket vai enviar em M1.1, campo a campo.
 
-    Um shape só, com um construtor só (bq/snapshot.py), para as duas telas nunca divergirem.
+    Um shape só, com um construtor só (bq/view/snapshot.py), para as duas telas nunca divergirem.
     """
 
     v: int
     boot_id: str
     join_url: str
-    # A string do esquema `WIFI:` (bq/net.py), não uma imagem: quem renderiza o QR é o /tv, com
+    # A string do esquema `WIFI:` (bq/core/net.py), não uma imagem: quem renderiza o QR é o /tv, com
     # a mesma lib que já usa para o outro. `None` quando a rede não foi configurada.
     #
     # Vai no snapshot de todos, e não só para o /tv, por dois motivos. Consistência: `join_url`

@@ -226,7 +226,7 @@ teste com latência injetada:
    vai acontecer;
 2. **`DISPATCH_LEAD_MS`.** A constante que decide o silêncio entre faixas está em `150` ms, que é um
    palpite fundamentado e não uma medição. Alto demais corta o final das músicas; baixo demais
-   devolve o silêncio. Ajuste em [`api/bq/conductor.py`](api/bq/conductor.py) com a caixa ligada e
+   devolve o silêncio. Ajuste em [`api/bq/playback/conductor.py`](api/bq/playback/conductor.py) com a caixa ligada e
    um cronômetro — o log imprime `play=N confirmado em X ms`, que é metade da medição.
 
 ---
@@ -251,22 +251,33 @@ backend quebra `npm run build`** em vez de falhar em runtime na festa.
 
 ```
 birthday-queue/
-├── .docs/            a especificação — 22 páginas + 9 ADRs
+├── .docs/            a especificação — 22 páginas + 10 ADRs
 ├── api/
-│   ├── bq/           o servidor. O coração é conductor.py
+│   ├── bq/           o servidor, em seis camadas com uma ordem total:
+│   │   ├── core/         relógio, config, banco, log, rede, erro
+│   │   ├── spotify/      HTTP contra o Spotify; não conhece o banco
+│   │   ├── domain/       as regras da festa: convidado, faixa, fila, play, guardas
+│   │   ├── view/         o que as TELAS recebem: snapshot, histórico, websocket
+│   │   ├── playback/     o que a CAIXA DE SOM recebe: o maestro e o voto
+│   │   └── routes/       a porta HTTP. Nada importa daqui
 │   ├── scripts/      authorize.py (OAuth) e dump_openapi.py (contrato)
-│   └── tests/        testes de mesa, com relógio e Spotify falsos
-├── web/src/          Vue 3 + TS. views/ tem as três telas
+│   └── tests/        espelha bq/, com relógio e Spotify falsos
+├── web/src/          Vue 3 + TS. views/ tem as quatro telas
 └── start.ps1
 ```
+
+Cada pasta importa das de baixo, nunca das de cima, e há um teste que falha no commit que quebrar
+isso. O docstring de [`api/bq/__init__.py`](api/bq/__init__.py) tem o mapa e as sete regras — é a
+porta de entrada; o porquê de cada fronteira está em
+[ADR-010](.docs/adr/ADR-010-camadas-do-backend.md).
 
 Os quatro arquivos que valem ler antes de mexer em qualquer coisa:
 
 | Arquivo | Por quê |
 |---|---|
-| [`api/bq/clock.py`](api/bq/clock.py) | as duas únicas funções de tempo do sistema. Ler o comentário não é opcional |
-| [`api/bq/conductor.py`](api/bq/conductor.py) | o maestro: uma task decide o que toca. Tudo depende dele |
-| [`api/bq/schema.sql`](api/bq/schema.sql) | quatro regras de negócio moram nos índices, não no código |
+| [`api/bq/core/clock.py`](api/bq/core/clock.py) | as duas únicas funções de tempo do sistema. Ler o comentário não é opcional |
+| [`api/bq/playback/conductor.py`](api/bq/playback/conductor.py) | o maestro: uma task decide o que toca. Tudo depende dele |
+| [`api/bq/core/schema.sql`](api/bq/core/schema.sql) | quatro regras de negócio moram nos índices, não no código |
 | [`web/src/types/ws.ts`](web/src/types/ws.ts) | a fonte da verdade do protocolo de tempo real |
 
 ### A especificação

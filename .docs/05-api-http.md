@@ -157,7 +157,7 @@ Ambos aceitam repetição: votar duas vezes devolve `200` com o mesmo estado, se
 ## 4. As guardas de voto — normativo
 
 ```python
-# bq/votes.py
+# bq/playback/votes.py
 def heard_ms(c: Play)     -> int: return c.start_pos_ms + (mono_ms() - c.anchor_mono)
 def remaining_ms(c: Play) -> int: return c.duration_ms - heard_ms(c)
 def min_heard_ms(c: Play) -> int: return min(S.min_heard_ms, c.duration_ms // 4)   # 20 s ou 25 %

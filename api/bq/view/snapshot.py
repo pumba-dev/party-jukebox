@@ -106,7 +106,7 @@ def _skip(guest: Guest | None) -> SkipState:
         )
     # `blockedReason` existe para o botão explicar-se SOZINHO. Sem ele, o convidado toca
     # "pular", espera, e recebe um 409 — três interações para descobrir que faltam 8 segundos.
-    # Vem das MESMAS funções que recusam o voto (bq/guards.py), senão tela e servidor divergem.
+    # Vem das MESMAS funções que recusam o voto (bq/domain/guards.py), senão tela e servidor divergem.
     reason, until = guards.blocked(cur) or (None, None)
     return SkipState(
         votes=votes,

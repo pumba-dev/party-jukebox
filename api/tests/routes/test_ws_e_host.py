@@ -59,8 +59,12 @@ def test_socket_aberto_antes_da_sessao_recebe_broadcast_impessoal(client: TestCl
     O socket abre no boot do app, antes de existir sessão. Num celular que acabou de escanear o
     QR aquela conexão não tem cookie, e como em WebSocket o cookie só viaja no handshake, ela
     fica anônima para sempre. Todo broadcast dela sai impessoal, e como o `apply` do cliente
-    SUBSTITUI por contrato, quatro campos morrem de uma vez — inclusive `guestsOnline`, que é o
-    "0 na festa" que o /tv anunciava com a festa cheia.
+    SUBSTITUI por contrato, os três campos do overlay morrem de uma vez.
+
+    🔴 E há um quarto efeito, que não é do overlay e é o mais público: `guestsOnline` conta
+    TOKENS DISTINTOS entre as conexões abertas. Uma conexão anônima não contribui com token
+    nenhum, então com todos os celulares nesse estado o número é 0 — e o /tv anuncia "0 na
+    festa" para a sala inteira, não só para quem está com o socket anônimo.
 
     O cliente não pode falar pelo socket (ADR-009), então a correção é ele REABRIR: o `hello`
     passou a dizer `identified` para ele saber que precisa. Este teste existe para o alçapão
@@ -81,11 +85,12 @@ def test_socket_aberto_antes_da_sessao_recebe_broadcast_impessoal(client: TestCl
         assert msg["me"] is None, "a sessão existe, mas não NESTA conexão"
         assert msg["queue"][0]["isYours"] is False
         assert msg["skip"]["youVoted"] is False
-        assert msg["guestsOnline"] == 0, "o quarto campo, e o mais público: o /tv diria '0'"
+        assert msg["guestsOnline"] == 0, "e este não é do overlay: o /tv diria '0 na festa'"
 
 
-def test_reabrir_o_socket_recupera_os_quatro_campos(client: TestClient) -> None:
-    """A outra metade: com o cookie presente no handshake, os quatro voltam."""
+def test_reabrir_o_socket_recupera_tudo(client: TestClient) -> None:
+    """A outra metade: com o cookie presente no handshake, os três do overlay voltam — e a
+    pessoa passa a contar em `guestsOnline`."""
     client.cookies.clear()
     client.post("/api/session", json={"nickname": "Ana"})
     client.post("/api/suggestions", json={"trackId": seed_track(9)})
@@ -100,9 +105,8 @@ def test_reabrir_o_socket_recupera_os_quatro_campos(client: TestClient) -> None:
 
 
 def test_ws_personaliza_por_conexao(client: TestClient) -> None:
-    """QUATRO campos dependem de quem está olhando; o resto é idêntico. O snapshot é construído
-    UMA vez e sobreposto (06 §4) — `me`, `queue[].isYours` e `skip.youVoted` pelo overlay, e
-    `guestsOnline` por dedução dos tokens das conexões abertas."""
+    """Três campos dependem de quem está olhando; o resto é idêntico. O snapshot é construído
+    UMA vez e sobreposto (06 §4)."""
     entrar(client, "Ana")
     tid = seed_track(1)
     client.post("/api/suggestions", json={"trackId": tid})

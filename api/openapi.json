@@ -1634,7 +1634,7 @@
           "me"
         ],
         "title": "StateSnapshot",
-        "description": "O que `GET /api/state` devolve e o que o WebSocket vai enviar em M1.1, campo a campo.\n\nUm shape só, com um construtor só (bq/snapshot.py), para as duas telas nunca divergirem."
+        "description": "O que `GET /api/state` devolve e o que o WebSocket vai enviar em M1.1, campo a campo.\n\nUm shape só, com um construtor só (bq/view/snapshot.py), para as duas telas nunca divergirem."
       },
       "SuggestIn": {
         "properties": {

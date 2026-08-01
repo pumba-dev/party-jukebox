@@ -93,7 +93,7 @@ fresco em vez de ler o banco. Ver [RNF-09](02-requisitos-nao-funcionais.md).
 ## 3. DDL — verificado
 
 ```sql
--- bq/schema.sql · executado e testado em SQLite 3.49.1
+-- bq/core/schema.sql · executado e testado em SQLite 3.49.1
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE guest (
@@ -321,7 +321,7 @@ por isso tem `suggestion_id` e `guest_id` nulos ([RF-26](01-requisitos-funcionai
 ## 6. Conexão e PRAGMAs
 
 ```python
-# bq/db.py
+# bq/core/db.py
 conn = sqlite3.connect(DB_PATH, check_same_thread=False, isolation_level=None)
 conn.row_factory = sqlite3.Row
 conn.executescript("""

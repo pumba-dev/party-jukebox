@@ -103,7 +103,7 @@ Três campos dependem de **quem** está olhando: `skip.youVoted`, `me` e `queue[
 igual para todos.
 
 ```python
-# bq/ws.py
+# bq/view/ws.py
 async def broadcast_state() -> None:
     base = build_snapshot()                    # uma vez: fila, player, settings, contagem
     for conn in connections:
@@ -113,6 +113,12 @@ async def broadcast_state() -> None:
 
 Construir o snapshot uma vez e sobrepor é o que mantém o custo de um broadcast em O(conexões) de
 serialização e O(1) de query — em vez de 30 varreduras da fila no banco por evento.
+
+🔴 **`guestsOnline` não é do overlay, e é onde isto morde.** Ele é impessoal — o mesmo número para
+todos num dado broadcast — mas é derivado dos **tokens das conexões abertas**, deduplicados. Uma
+conexão sem cookie não contribui com token nenhum, e por isso não conta como pessoa (é o que faz o
+`/tv` não se contar). A consequência inesperada está em §7: se todos os celulares estiverem com
+socket anônimo, o número é 0 **para a sala inteira**, e o `/tv` anuncia "0 na festa" com a festa cheia.
 
 **O `/tv` não tem convidado.** `me` vem `null` e `youVoted` vem `false`. Isso não é caso especial no
 servidor (a conexão simplesmente não tem cookie `bq_guest`), mas é caso obrigatório no cliente: `Me | null`
@@ -157,11 +163,24 @@ e não vale para uma barra de progresso.
 | sugestão criada, removida, reordenada | rotas |
 | voto lançado ou retirado | rotas |
 | settings alterados | `/host` |
-| conexão abre ou fecha (muda `guestsOnline`) | `ws.py` |
+| conexão abre ou fecha (muda `guestsOnline`) | `bq/view/ws.py` |
 | correção de deriva relevante (> 1 s) no polling | maestro |
+| **a guarda de voto muda de valor sozinha** | maestro (detector de borda) |
 
 **Não há broadcast periódico.** O `/tv` anda sozinho pela projeção de §5; mandar estado a cada segundo
 só para a barra andar seria trocar 2 KB × 30 clientes por segundo por... uma barra que anda em degraus.
+
+🔴 **A última linha da tabela não é exceção a isso — é borda, e vale ler o porquê.** As funções de
+`bq/domain/guards.py` mudam de valor com a passagem do tempo, e passagem do tempo não é evento neste
+sistema: nenhum agendador tem prazo em `blockedUntilMs`. Sem alguém amostrando, o motivo novo só
+chegava à tela por acidente — alguém abrindo uma aba, alguém sugerindo música. As duas direções
+importam, e a segunda é a pior: o botão fica morto depois de destravar, e fica VIVO depois de travar
+(últimos 15 s), e aí o convidado toca e leva um `409`, que é exatamente o que §3 existe para impedir.
+
+O maestro já roda a 1 Hz; ele só passou a notar quando `guards.blocked()` muda de veredito, e a
+notificar nesse instante. São **no máximo quatro broadcasts por faixa** — contra os ~4 que despacho,
+confirmação, fim e votos já emitem. Latência ≤ 1 s (o tick do poller). Um broadcast por segundo
+continua proibido, e há teste que falha se alguém "simplificar" o detector nessa direção.
 
 ## 7. Conexão, keepalive e reconexão
 
@@ -187,6 +206,35 @@ código nosso para reimplementar o que a camada abaixo já faz.
 **`bootId` muda a cada restart do servidor.** Se o cliente reconectar e ver `bootId` diferente, ele
 recarrega a página — o servidor pode ter subido com bundle nova, e um cliente antigo com tipos antigos
 falhando em silêncio é pior que um reload.
+
+### 🔴 O cookie só viaja no handshake — e o socket abre antes de existir sessão
+
+Este é o segundo modo de falha real do frontend, e ele foi observado na festa.
+
+O socket abre no `onMounted` do app, antes de o convidado escolher apelido. Num celular que acabou
+de escanear o QR **não existe cookie `bq_guest`**, e como em WebSocket o cookie só é enviado no
+handshake, aquela conexão fica anônima **para o resto da vida dela**. Todo broadcast que ela recebe
+sai impessoal, e como o `apply()` do cliente SUBSTITUI por contrato (§2), os três campos de §4 caem
+juntos: o convidado **volta para a tela de escrever o nome** no meio da festa, a seção "Minhas"
+esvazia, e "Tirar meu voto" volta a dizer "Pular". Mais o efeito de `guestsOnline` descrito em §4.
+
+Aparece exatamente ao sugerir uma música ou ao votar, porque são as duas ações de convidado que
+disparam broadcast. Recarregar a página resolvia — o socket reabria com o cookie.
+
+O cliente não pode falar pelo socket ([ADR-009](adr/ADR-009-acoes-por-http-nao-websocket.md)) e o
+servidor não pode reler o cookie, então a única saída é o cliente **reabrir o socket**. Para ele
+saber que precisa, o `hello` carrega `identified: boolean` — se ESTA conexão sabe quem é. É fato de
+conexão, não de estado, e é por isso que mora no `hello` e não no snapshot.
+
+No cliente: um snapshot de broadcast que chegue por socket anônimo enquanto a aba tem identidade é
+**descartado inteiro** (verdade misturada é pior que verdade velha) e o cliente pergunta ao HTTP, que
+por construção leva o cookie. O gatilho de reabertura é declarativo — "esta aba ganhou identidade e o
+socket é anônimo" — e não uma chamada depois do `POST /api/session`, porque assim vale também para a
+aba que descobre a identidade pelo `revalidar()` do `visibilitychange`.
+
+`identified` é **opcional** no tipo do cliente de propósito: só a negativa explícita (`=== false`)
+conta como anônimo. Um bundle de dev contra uma API velha leria `undefined`, e tratar isso como
+anônimo faria a aba reabrir em laço.
 
 ### 🔴 iOS em background — o modo de falha mais provável do frontend
 

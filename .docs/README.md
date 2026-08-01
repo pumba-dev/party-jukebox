@@ -48,6 +48,7 @@ toda tarefa lá aponta para a seção que a especifica.
 | [007](adr/ADR-007-escopo-de-seguranca-reduzido.md) | Onde a segurança para e por quê |
 | [008](adr/ADR-008-force-play-simples-vs-park-resume.md) | Force-play simples em M1; park/resume adiado |
 | [009](adr/ADR-009-acoes-por-http-nao-websocket.md) | Ações do cliente por HTTP; WS é só broadcast de estado |
+| [010](adr/ADR-010-camadas-do-backend.md) | O backend em seis camadas, com as regras de dependência testadas |
 
 ### Histórico
 

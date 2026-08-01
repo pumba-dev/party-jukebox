@@ -43,8 +43,11 @@ warn_unused_ignores = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-# `bq.play` entra aqui porque `heard_ms`, `remaining_ms` e `dispatch_next_at_mono` SÃO a
+# `bq.domain.play` entra aqui porque `heard_ms`, `remaining_ms` e `dispatch_next_at_mono` SÃO a
 # aritmética de tempo que o RNF-24 protege — elas só mudaram de arquivo.
+# 🔴 Esta lista é caminho-em-string e falha em SILÊNCIO: um nome que não casa módulo nenhum não
+# derruba nada, só desliga o `strict`. `warn_unused_configs` acima e um teste em
+# tests/arquitetura/test_empacotamento.py são o que a mantêm honesta.
 module = [
     "bq.core.clock",
     "bq.domain.play",

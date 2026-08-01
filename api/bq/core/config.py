@@ -4,7 +4,7 @@ Falha de validação **aborta o boot** com mensagem legível: descobrir que o PI
 às 21h, com convidados chegando, é pior que não subir às 18h (.docs/03-arquitetura.md §7).
 
 Limiares de jogo (5 votos, cooldown, duração máxima, janela de repetição) NÃO ficam aqui —
-vivem na tabela `setting`, porque RF-24 exige ajuste ao vivo sem restart. Ver bq/party.py.
+vivem na tabela `setting`, porque RF-24 exige ajuste ao vivo sem restart. Ver bq/domain/party.py.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     bind_host: str = "0.0.0.0"
     bind_port: int = Field(default=80, ge=1, le=65535)
     # Preenchido pelo start.ps1 a partir dos adaptadores reais. Vazio = heurística de rota,
-    # que erra com VPN ligada. Ver bq/net.py.
+    # que erra com VPN ligada. Ver bq/core/net.py.
     lan_ip: str = ""
 
     db_path: Path = API_DIR / "party.db"
