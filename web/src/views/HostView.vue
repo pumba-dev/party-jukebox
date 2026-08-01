@@ -21,13 +21,14 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError, api, faltam, mmss, type SearchResult } from '@/api'
 import Abas from '@/components/Abas.vue'
+import CampoSelect from '@/components/CampoSelect.vue'
 import { useNow, useProjected } from '@/composables/useClock'
+import { GRUPOS, REFERENCIA_MS, type Chave } from '@/regras'
 import { useParty } from '@/stores/party'
 import type { components } from '@/types/api'
 import type { TrackId } from '@/types/brands'
 
 type SettingsFull = components['schemas']['SettingsFull']
-type SettingsPatch = components['schemas']['SettingsPatch']
 type VotersOut = components['schemas']['VotersOut']
 type HostHealth = components['schemas']['HostHealth']
 
@@ -58,6 +59,10 @@ const autenticado = ref(false)
 const pin = ref('')
 const ocupado = ref(false)
 const confirmandoLimpar = ref(false)
+
+// Por CAMPO, e não o `ocupado` global: com um booleano só, mudar um `<select>` em Regras congelaria
+// o botão Pular numa aba que você não está vendo.
+const salvando = ref<Chave | null>(null)
 
 // 🔴 O erro tem ORIGEM. Com uma string só, um PATCH de limiar recusado renderizava no mesmo lugar
 // que um skip falho — e com abas ele apareceria na aba errada ou em nenhuma. A aba dona o mostra
@@ -193,12 +198,23 @@ async function tocarAgora(t: SearchResult): Promise<void> {
 }
 
 /** RF-24 · efeito imediato, sem restart. O /tv passa a dizer `n de 4` na mesma hora. */
-async function ajustar(key: keyof SettingsPatch, valor: number): Promise<void> {
+async function ajustar(key: Chave, valor: number): Promise<void> {
   // 🔴 Passa por `acao()`. Antes não passava: sem try/catch, um PATCH recusado era uma promise
   // rejeitada sem tratamento e o controle voltava sozinho, sem explicação nenhuma na tela.
+  //
+  // E o `CampoSelect` mostra `cfg[key]`, nunca um valor local: se o PATCH falhar, o campo volta ao
+  // valor do servidor sozinho. A tela nunca exibe um número que não está em vigor.
+  salvando.value = key
+  const patch: Partial<Record<Chave, number>> = { [key]: valor }
   await acao('regras', async () => {
-    cfg.value = await api.host.patch({ [key]: valor })
+    cfg.value = await api.host.patch(patch)
   })
+  // O pisca fica visível um instante DEPOIS da resposta, porque ele é a confirmação: num PATCH de
+  // 5 ms na LAN, o `border-accent` apareceria e sumiria antes de você ver. Antes não havia sinal
+  // nenhum de que tinha salvo.
+  window.setTimeout(() => {
+    if (salvando.value === key) salvando.value = null
+  }, 500)
 }
 
 async function limparFila(): Promise<void> {
@@ -213,14 +229,22 @@ onMounted(() => {
 })
 onUnmounted(() => window.clearInterval(tick))
 
-const SLIDERS = [
-  { key: 'skipVotesNeeded', rotulo: 'Votos para pular', min: 1, max: 15, step: 1, div: 1, un: '' },
-  { key: 'suggestCooldownMs', rotulo: 'Espera entre sugestões', min: 0, max: 600_000, step: 15_000, div: 1_000, un: 's' },
-  { key: 'maxDurationMs', rotulo: 'Duração máxima', min: 60_000, max: 900_000, step: 30_000, div: 60_000, un: 'min' },
-  { key: 'repeatWindowMs', rotulo: 'Não repetir por', min: 0, max: 14_400_000, step: 600_000, div: 60_000, un: 'min' },
-  { key: 'protectMs', rotulo: 'Proteção do "tocar agora"', min: 0, max: 300_000, step: 15_000, div: 1_000, un: 's' },
-  { key: 'skipCooldownMs', rotulo: 'Espera entre skips', min: 0, max: 180_000, step: 15_000, div: 1_000, un: 's' },
-] as const
+/**
+ * A janela de voto que RESULTA dos limiares, medida na faixa que está tocando.
+ *
+ * 🔴 Não é enfeite: é a condição de validade da remoção do teto de 25 % (ADR-004 §Revisão). Sem o
+ * teto, `minHeardMs + minRemainingMs > duração` torna a faixa impossível de pular, e o servidor
+ * aceita o ajuste respondendo 200 — não há erro em lugar nenhum. Esta linha é a ÚNICA coisa no
+ * sistema que avisa. Se ela sair da tela, o teto tem de voltar.
+ */
+const janela = computed(() => {
+  if (!cfg.value) return null
+  const real = faixa.value?.durationMs
+  const d = real ?? REFERENCIA_MS
+  const inicio = cfg.value.minHeardMs
+  const fim = d - cfg.value.minRemainingMs
+  return { inicio, fim, fechada: inicio >= fim, real: real !== undefined }
+})
 </script>
 
 <template>
@@ -461,27 +485,52 @@ const SLIDERS = [
       <div v-show="aba === 'regras'" class="flex flex-col gap-4">
         <p v-if="erro?.aba === 'regras'" class="text-warn text-sm">{{ erro.texto }}</p>
 
-        <!-- RF-24 · limiares ao vivo -->
-        <section v-if="cfg" class="bg-card border-line rounded-2xl border p-4">
-          <p class="text-mute text-xs font-semibold tracking-widest uppercase">Regras do jogo</p>
-          <div class="mt-3 flex flex-col gap-3">
-            <label v-for="s in SLIDERS" :key="s.key" class="block">
-              <span class="flex justify-between text-sm">
-                <span>{{ s.rotulo }}</span>
-                <span class="tabular-nums">{{ Math.round(cfg[s.key] / s.div) }}{{ s.un }}</span>
-              </span>
-              <input
-                class="accent-accent mt-1 w-full"
-                :max="s.max"
-                :min="s.min"
-                :step="s.step"
-                type="range"
-                :value="cfg[s.key]"
-                @change="ajustar(s.key, Number(($event.target as HTMLInputElement).value))"
-              />
-            </label>
+        <!-- RF-24 · limiares ao vivo, com efeito imediato e sem restart.
+             `<template v-if>` por fora e `v-for` por dentro: no Vue 3 o `v-if` tem prioridade sobre
+             o `v-for` no mesmo elemento, então `cfg` seria avaliado antes de `g` existir. -->
+        <template v-if="cfg">
+        <section
+          v-for="g in GRUPOS"
+          :key="g.titulo"
+          class="bg-card border-line rounded-2xl border p-4"
+        >
+          <p class="text-mute text-xs font-semibold tracking-widest uppercase">{{ g.titulo }}</p>
+          <div class="mt-3 flex flex-col gap-2">
+            <CampoSelect
+              v-for="c in g.campos"
+              :key="c.key"
+              :model-value="cfg[c.key]"
+              :opcoes="c.opcoes"
+              :rotulo="c.rotulo"
+              :salvando="salvando === c.key"
+              @update:model-value="ajustar(c.key, $event)"
+            >
+              {{ c.ajuda }}
+            </CampoSelect>
           </div>
+
+          <!-- 🔴 A janela de voto. Ver o docstring de `janela`: é a condição de validade da remoção
+               do teto de 25 %, não um enfeite. O servidor aceita limiares que fecham a votação e
+               não reclama; esta linha é a única coisa que avisa. -->
+          <p
+            v-if="g.janela && janela"
+            class="mt-3 text-xs leading-relaxed"
+            :class="janela.fechada ? 'text-hot' : 'text-mute'"
+          >
+            <template v-if="janela.fechada">
+              <strong>Nesta música ninguém consegue votar.</strong> O mínimo para ouvir
+              ({{ mmss(janela.inicio) }}) passa do momento em que o voto já é recusado
+              ({{ mmss(janela.fim) }}).
+            </template>
+            <template v-else>
+              {{ janela.real ? 'Nesta música' : 'Numa música de 3:30' }}, dá para votar de
+              <span class="text-ink tabular-nums">{{ mmss(janela.inicio) }}</span>
+              até
+              <span class="text-ink tabular-nums">{{ mmss(janela.fim) }}</span>.
+            </template>
+          </p>
         </section>
+        </template>
       </div>
 
       <!-- ================================ SAÚDE =============================== -->
