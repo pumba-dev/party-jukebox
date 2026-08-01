@@ -4,5 +4,53 @@
     "mattpocock-skills@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true
+  },
+  "permissions": {
+    "deny": [
+      "Read(/api/.env)",
+      "Edit(/api/.env)",
+      "Read(/api/.tokens.json)",
+      "Edit(/api/.tokens.json)",
+      "Read(/api/party.db*)",
+      "Edit(/api/party.db*)",
+      "Read(/api/party.log)",
+      "Edit(/api/party.log)",
+      "Edit(/web/src/types/api.d.ts)"
+    ],
+    "allow": [
+      "Bash(cd api && .venv/Scripts/python.exe -m pytest:*)",
+      "Bash(cd api && .venv/Scripts/python.exe -m mypy:*)",
+      "Bash(cd web && npm run build:*)",
+      "PowerShell(Set-Location *)",
+      "PowerShell(.\\.venv\\Scripts\\python.exe -m pytest*)",
+      "PowerShell(.\\.venv\\Scripts\\python.exe -m mypy*)",
+      "PowerShell(.\\.venv\\Scripts\\python.exe scripts\\dump_openapi.py*)",
+      "PowerShell(npm run build*)",
+      "PowerShell(npm run types*)",
+      "PowerShell(npm test*)",
+      "PowerShell(npm run test:festa*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/aviso-openapi.ps1"
+            ],
+            "timeout": 15,
+            "statusMessage": "conferindo o contrato do OpenAPI"
+          }
+        ]
+      }
+    ]
   }
 }
