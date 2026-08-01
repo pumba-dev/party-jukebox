@@ -191,6 +191,39 @@ async def host_bump(suggestion_id: int, _: Host) -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.post("/suggestions/{suggestion_id}/last")
+async def host_send_to_back(suggestion_id: int, _: Host) -> dict[str, bool]:
+    """O par do bump: manda uma sugestão para o FIM da fila.
+
+    Não é "descer uma posição" — ver o docstring de `queue.send_to_back`, onde está o porquê. Não
+    chama `wake()`, ao contrário do bump: mandar para o fim nunca cria algo a tocar agora.
+    """
+    owner = queue.owner_of(suggestion_id)
+    if owner is None:
+        raise ApiError("NOT_FOUND", "Essa sugestão não existe mais.")
+    if owner[1] != "queued":
+        raise ApiError("NOT_QUEUED", "Essa já saiu da fila.", state=owner[1])
+    queue.send_to_back(suggestion_id)
+    await ws.notify()
+    return {"ok": True}
+
+
+@router.delete("/queue")
+async def host_clear_queue(_: Host) -> dict[str, int]:
+    """Esvazia a fila inteira. Sem confirmação no servidor — ela é do botão, no /host.
+
+    Existe porque a alternativa é remover uma por uma, e o momento em que isso é pedido é
+    justamente o de uma fila comprida: alguém enfileirou quinze músicas de um gênero só, ou a
+    festa virou e o que está na fila é de duas horas atrás.
+
+    Não para o que está tocando — para isso existe Pular, que é outro gesto. E devolve a contagem
+    em vez de 204: "esvaziei 12" e "não havia nada" são recados diferentes para quem apertou.
+    """
+    n = queue.clear()
+    await ws.notify()
+    return {"removed": n}
+
+
 @router.post("/device/resolve")
 async def resolve_device(_: Host) -> dict[str, Any]:
     """O botão de "reabri o Spotify, tenta de novo" — a ação de recuperação mais provável da

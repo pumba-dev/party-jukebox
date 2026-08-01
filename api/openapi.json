@@ -688,6 +688,79 @@
         }
       }
     },
+    "/api/host/suggestions/{suggestion_id}/last": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Send To Back",
+        "description": "O par do bump: manda uma sugestão para o FIM da fila.\n\nNão é \"descer uma posição\" — ver o docstring de `queue.send_to_back`, onde está o porquê. Não\nchama `wake()`, ao contrário do bump: mandar para o fim nunca cria algo a tocar agora.",
+        "operationId": "host_send_to_back_api_host_suggestions__suggestion_id__last_post",
+        "parameters": [
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Host Send To Back Api Host Suggestions  Suggestion Id  Last Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/queue": {
+      "delete": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Clear Queue",
+        "description": "Esvazia a fila inteira. Sem confirmação no servidor — ela é do botão, no /host.\n\nExiste porque a alternativa é remover uma por uma, e o momento em que isso é pedido é\njustamente o de uma fila comprida: alguém enfileirou quinze músicas de um gênero só, ou a\nfesta virou e o que está na fila é de duas horas atrás.\n\nNão para o que está tocando — para isso existe Pular, que é outro gesto. E devolve a contagem\nem vez de 204: \"esvaziei 12\" e \"não havia nada\" são recados diferentes para quem apertou.",
+        "operationId": "host_clear_queue_api_host_queue_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "type": "object",
+                  "title": "Response Host Clear Queue Api Host Queue Delete"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/host/device/resolve": {
       "post": {
         "tags": [

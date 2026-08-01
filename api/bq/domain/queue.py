@@ -177,6 +177,45 @@ def remove(suggestion_id: int) -> None:
     db.run("UPDATE suggestion SET state = 'removed' WHERE id = ?", (suggestion_id,))
 
 
+def clear() -> int:
+    """Esvazia a fila num gesto. Devolve quantas saíram.
+
+    `state = 'removed'` — o MESMO destino de `remove()`, e não `DELETE`. Duas razões: as
+    invariantes de 04 §5 e o histórico de RF-42 contam com a linha existir, e um segundo jeito de
+    sair da fila seria um segundo jeito de errar.
+
+    Não toca a faixa que está tocando (`state = 'playing'`), que não é da fila — o botão diz
+    "esvaziar a fila" e é exatamente isso que ele faz. Para parar o que já está tocando existe
+    Pular, que é outro gesto e tem outro efeito.
+
+    Como em `remove()`, não devolve cota de cooldown a ninguém.
+    """
+    return db.run("UPDATE suggestion SET state = 'removed' WHERE state = 'queued'").rowcount
+
+
+def send_to_back(suggestion_id: int) -> None:
+    """O contrário de `bump_to_front`: esta sugestão passa a tocar por ÚLTIMO.
+
+    🔴 É "por último", e não "uma posição para baixo" — e o rótulo no /host diz isso, porque a
+    diferença é visível. A ordem é `rank ASC, suggested_at ASC`, e trocar `rank` com o vizinho
+    **não** troca a ordem quando os ranks empatam. Empate é o caso NORMAL do round-rank: todo
+    primeiro pedido de todo mundo cai em `rank 0` (04 §4.1), então numa fila típica quase todos
+    empatam e o desempate é por `suggested_at`. "Descer uma posição" seria uma promessa que a
+    ordenação não cumpre; mandar para o fim é total e sem ambiguidade.
+
+    `MAX(rank) + 1` espelha o `MIN(rank) - 1` do bump, pelo mesmo motivo: dois envios sucessivos
+    ficam em ordem estrita em vez de empatarem entre si.
+    """
+    db.run(
+        """
+        UPDATE suggestion
+           SET rank = (SELECT MAX(rank) FROM suggestion WHERE state = 'queued') + 1
+         WHERE id = ? AND state = 'queued'
+        """,
+        (suggestion_id,),
+    )
+
+
 def queued_ahead(suggestion_id: int) -> int:
     """Quantas sugestões tocam antes desta. Vira TEXTO na resposta: RF-33 proíbe número."""
     return int(
