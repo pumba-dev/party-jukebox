@@ -43,7 +43,18 @@ from ..view import ws
 
 _L = log.get("maestro")
 
-POLL_INTERVAL_MS = 1_000
+# O tick LOCAL do laço, e ele NÃO custa requisição nenhuma: é o que faz `_notify_guard_edge`
+# amostrar as guardas e o que dispara o despacho antecipado de 02 §1. Continua a 1 Hz, e é por
+# isso que afrouxar as cadências de poll abaixo não mexe em RNF-01, RNF-02 nem RNF-03.
+TICK_MS = 1_000
+
+# As três cadências do único poll periódico ao Spotify (`GET /me/player`), escolhidas a cada tick
+# por `_poll_interval_ms`. Antes era `POLL_INTERVAL_MS` fixo em TODA situação, o que gastava 3 600
+# requisições por hora inclusive com a fila vazia — ver 07 §5 e o porquê de cada uma no docstring
+# de `_poll_interval_ms`.
+POLL_INTERVAL_MS = 1_000  # transição a confirmar, ou turno de karaokê em curso
+POLL_WATCH_MS = 3_000  # tocando ou pausado: só vigia interferência externa
+POLL_IDLE_MS = 15_000  # ocioso, festa pausada ou modo passivo: não há play a confirmar
 
 # Quanto esperamos a confirmação do poller antes de reemitir o despacho.
 CONFIRM_TIMEOUT_MS = 4_000
@@ -87,6 +98,8 @@ class Conductor:
         self._wake = asyncio.Event()
         self._lock = asyncio.Lock()  # serializa TODA transição de estado
         self._poll_at_mono = 0
+        self._polled_at_mono = 0  # instante do último poll: a âncora, não `now` — ver `_step`
+        self._tick_at_mono = 0
         self._retry_at_mono = 0
         self._passive = False  # RF-19 / M2.3: rendição após 3 tentativas
         self._fail_sug_id: int | None = None
@@ -191,7 +204,7 @@ class Conductor:
 
     def _next_deadline_ms(self) -> int:
         now = clock.mono_ms()
-        deadlines = [self._poll_at_mono]
+        deadlines = [self._tick_at_mono, self._poll_at_mono]
         cur = self.current
         if cur is not None and cur.state is PlayState.PLAYING:
             deadlines.append(cur.dispatch_next_at_mono)
@@ -204,50 +217,105 @@ class Conductor:
             deadlines.append(k.deadline_mono)
         return max(50, min(deadlines) - now)
 
+    def _poll_interval_ms(self) -> int:
+        """Quanto esperar até o próximo `GET /me/player` — a única chamada periódica ao Spotify.
+
+        🔴 Isto NÃO afrouxa nenhum requisito de latência, e a razão é 02 §1: o despacho é
+        agendado por relógio local, 150 ms antes do fim previsto, e entra em `_next_deadline_ms`
+        por conta própria — *"o polling existe apenas como rede de segurança"*. O detector de
+        borda de `_notify_guard_edge` também não depende daqui: ele roda no tick local de 1 Hz e
+        não custa requisição. O que muda de verdade é só quanto tempo o maestro leva para notar
+        algo que **não** foi ele que fez.
+
+        `POLL_INTERVAL_MS` — há despacho esperando confirmação, ou um turno de karaokê em curso.
+        Os dois precisam de 1 Hz por motivos diferentes e igualmente concretos: `DISPATCHING →
+        PLAYING` só acontece em `_confirm`, e `CONFIRM_TIMEOUT_MS` (4 s) conta com quatro
+        chances antes de reemitir; e no karaokê é o poll que recala o Spotify se ele voltar
+        sozinho, com a sala ouvindo música por baixo de quem está cantando enquanto não recala.
+        Karaokê é minutos por noite — não é onde está o desperdício, e é onde o preço é audível.
+
+        `POLL_WATCH_MS` — tocando ou pausado, nada nosso a confirmar. O poll só vigia
+        interferência externa. O preço é detectar um sequestro em até 3 s em vez de 1 s.
+
+        `POLL_IDLE_MS` — ocioso, festa pausada ou modo passivo: não existe play aberto para
+        confirmar, proteger ou terminar, e nos dois últimos `_step` volta antes de despachar
+        qualquer coisa. Era aqui que moravam 3 600 requisições por hora sem um único consumidor —
+        um servidor esquecido de pé gastava, por hora, o orçamento de uma festa inteira. É o que
+        rendeu o bloqueio de 3,5 h que motivou esta função (07 §5).
+        """
+        cur = self.current
+        # DISPATCHING primeiro, inclusive com a festa pausada: quem pausou não desfaz um despacho
+        # que já saiu, e ele continua precisando de confirmação.
+        if cur is not None and cur.state is PlayState.DISPATCHING:
+            return POLL_INTERVAL_MS
+        if self._karaoke is not None:
+            return POLL_INTERVAL_MS
+        if self._passive or S.paused or cur is None:
+            return POLL_IDLE_MS
+        return POLL_WATCH_MS
+
     async def _step(self) -> None:
         now = clock.mono_ms()
+        self._tick_at_mono = now + TICK_MS
 
         if now >= self._poll_at_mono:
-            self._poll_at_mono = now + POLL_INTERVAL_MS
+            self._polled_at_mono = now
             poll = await self.spotify.get_playback()  # nunca levanta (RNF-10)
             await self._reconcile(poll)
             # a chamada custou 150–400 ms: `now` está velho, e com um lead de 150 ms isso
             # decide se o despacho sai adiantado ou atrasado.
             now = clock.mono_ms()
 
-        # 🔴 ANTES da guarda abaixo, de propósito: com a festa pausada `heard_ms()` congela, mas
-        # a proteção de RF-26 e o cooldown de RF-23 continuam vencendo em relógio de parede.
-        await self._notify_guard_edge()
+        try:
+            # 🔴 ANTES da guarda abaixo, de propósito: com a festa pausada `heard_ms()` congela,
+            # mas a proteção de RF-26 e o cooldown de RF-23 continuam vencendo em relógio de
+            # parede.
+            await self._notify_guard_edge()
 
-        # 🔴 ANTES da guarda, pelo mesmo motivo do bloco acima: com a festa pausada ou em modo
-        # passivo o turno não pode VENCER, mas o prazo tem de escorregar junto. Sem isto a pessoa
-        # volta do banheiro e já perdeu a vez que ninguém deixou ela começar.
-        if self._karaoke is not None:
-            self._karaoke.freeze(now, frozen=self._passive or S.paused)
-
-        if self._passive or S.paused or now < self._retry_at_mono:
-            return
-
-        if self._karaoke is not None:
-            await self._step_karaoke(now)
+            # 🔴 ANTES da guarda, pelo mesmo motivo do bloco acima: com a festa pausada ou em modo
+            # passivo o turno não pode VENCER, mas o prazo tem de escorregar junto. Sem isto a
+            # pessoa volta do banheiro e já perdeu a vez que ninguém deixou ela começar.
             if self._karaoke is not None:
-                return  # turno em curso: nada mais é despachado
+                self._karaoke.freeze(now, frozen=self._passive or S.paused)
 
-        cur = self.current
-        if cur is None:
-            nxt = queue.peek_next()
-            if nxt is not None:
-                await self._advance(nxt)  # RF-15 / RF-18
-        elif cur.state is PlayState.PLAYING and now >= cur.dispatch_next_at_mono:
-            nxt = queue.peek_next()
-            # `_end_play` primeiro, sempre: `ux_play_open` só admite um play aberto, e a
-            # ordem também é a de 05 §4.1 — fecha, escolhe, e só então o HTTP.
-            await self._end_play(cur, "finished")
-            if nxt is not None:
-                await self._advance(nxt)  # RF-16, antecipado
-            else:
-                # Fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
-                await self._go_silent("finished")
+            if self._passive or S.paused or now < self._retry_at_mono:
+                return
+
+            if self._karaoke is not None:
+                await self._step_karaoke(now)
+                if self._karaoke is not None:
+                    return  # turno em curso: nada mais é despachado
+
+            cur = self.current
+            if cur is None:
+                nxt = queue.peek_next()
+                if nxt is not None:
+                    await self._advance(nxt)  # RF-15 / RF-18
+            elif cur.state is PlayState.PLAYING and now >= cur.dispatch_next_at_mono:
+                nxt = queue.peek_next()
+                # `_end_play` primeiro, sempre: `ux_play_open` só admite um play aberto, e a
+                # ordem também é a de 05 §4.1 — fecha, escolhe, e só então o HTTP.
+                await self._end_play(cur, "finished")
+                if nxt is not None:
+                    await self._advance(nxt)  # RF-16, antecipado
+                else:
+                    # Fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
+                    await self._go_silent("finished")
+        finally:
+            # 🔴 `finally`, e ancorado em `_polled_at_mono` — os dois detalhes são obrigatórios.
+            #
+            # `finally` porque o corpo acima tem dois `return`s, e eles são exatamente os estados
+            # lentos (passivo/pausado, turno em curso): reprogramar só no fim do caminho felizardo
+            # deixaria o prazo do estado anterior valendo. E porque um despacho que acabou de sair
+            # muda a cadência para 1 Hz aqui embaixo, sem o que `CONFIRM_TIMEOUT_MS` venceria
+            # antes do primeiro poll de confirmação e reemitiria por cima de uma faixa que começou
+            # bem.
+            #
+            # Ancorado no último poll e não em `now` porque `_step` roda a 1 Hz e recalcula isto
+            # em TODO tick: somar ao instante atual empurraria o prazo para sempre e o poll nunca
+            # aconteceria de novo — a reconciliação morreria sem erro nenhum, com todos os
+            # indicadores verdes, que é o modo de falha de RNF-11.
+            self._poll_at_mono = self._polled_at_mono + self._poll_interval_ms()
 
     async def _notify_guard_edge(self) -> None:
         """A passagem do tempo não é evento neste sistema — e para o botão "Pular" ela é.
@@ -991,8 +1059,9 @@ class Conductor:
                     await ws.notify()
 
     def _log_poll_error(self, msg: str) -> None:
-        """O poller roda a 1 Hz: sem deduplicação, um Spotify desautorizado produz 3 600
-        linhas por hora do mesmo texto e enterra tudo o que importa no log."""
+        """Sem deduplicação, um Spotify desautorizado repete a mesma linha por horas e enterra
+        tudo o que importa no log — eram 3 600 por hora com o poll fixo em 1 Hz, e continuam
+        centenas na cadência ociosa de `_poll_interval_ms`."""
         now = clock.mono_ms()
         if msg == self._last_poll_error and now - self._last_poll_error_at < 15_000:
             return

@@ -117,7 +117,7 @@ sugere uma música que já tocou e recebe um erro que não faz sentido para ele.
 
 | # | Requisito |
 |---|---|
-| **RNF-15** | O polling de estado é **um único** poller no processo, a 1 Hz, independente do número de clientes conectados. |
+| **RNF-15** | O polling de estado é **um único** poller no processo, independente do número de clientes conectados, e a cadência dele é **função do estado**: 1 Hz só quando há transição a confirmar ou karaokê em curso, mais lenta tocando, e mínima ociosa. Nenhum estado sem consumidor gasta 1 Hz. |
 | **RNF-16** | Busca tem cache no servidor e um limitador global. Um `429` na busca nunca afeta o caminho de playback. |
 | **RNF-17** | Todo `429` respeita o `Retry-After`. O caminho de playback tem prioridade sobre a busca em caso de contenção. |
 
@@ -130,8 +130,17 @@ O rate limit do Spotify é **por app, em janela deslizante de 30 s, com o valor 
    sobreviver é o playback: busca falhando é uma pessoa esperando; playback falhando é silêncio na
    sala. Daí a prioridade explícita do RNF-17.
 
-Orçamento estimado em regime: 2 req/s de polling e despacho + picos de busca. Confortável, mas o
-limitador existe porque o valor real do limite é desconhecido e o modo de falha é público.
+**O orçamento estimado aqui estava errado, e o erro custou uma tarde.** A conta original era "2 req/s
+de polling e despacho + picos de busca. Confortável" — e "confortável" só valia para a festa. O
+poller a 1 Hz fixo gastava 3 600 requisições **por hora sempre que o processo estava de pé**,
+inclusive com a fila vazia, e um app em development mode tem quota bem mais apertada que a de
+produção. Em 01/08/2026 o Spotify devolveu `Retry-After: 12922` — um bloqueio de 3 h 35 min do
+`client_id` inteiro, disparado por sessões de desenvolvimento, não pela festa.
+
+Daí RNF-15 ter deixado de dizer "a 1 Hz" e passado a dizer "função do estado". As três cadências e o
+que cada uma protege estão em [07 §5](07-integracao-spotify.md); o orçamento em regime caiu para
+~240 req/h ociosas e ~1 200 req/h tocando. O limitador continua existindo porque o valor real do
+limite é desconhecido e o modo de falha é público.
 
 ## 5. Compatibilidade
 

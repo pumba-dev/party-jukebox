@@ -208,7 +208,10 @@ esse problema: só existe um prazo, e ele é sempre derivado do estado atual.
 
 ```python
 # bq/playback/conductor.py — forma normativa
-POLL_INTERVAL_MS = 1_000
+TICK_MS          = 1_000   # o tick LOCAL: não custa requisição ao Spotify
+POLL_INTERVAL_MS = 1_000   # há transição a confirmar, ou karaokê em curso
+POLL_WATCH_MS    = 3_000   # tocando: só vigia interferência externa
+POLL_IDLE_MS     = 15_000  # ocioso, pausado ou passivo: não há play a confirmar
 DISPATCH_LEAD_MS =   150   # medir e ajustar; ver §4.4
 
 class Conductor:
@@ -216,7 +219,9 @@ class Conductor:
         self.current: Play | None = None
         self._wake = asyncio.Event()     # rotas acordam o maestro
         self._lock = asyncio.Lock()      # serializa TODA transição de estado
+        self._tick_at_mono = 0
         self._poll_at_mono = 0
+        self._polled_at_mono = 0         # âncora do próximo poll; ver §4.3
         self._passive = False            # RF-19: rendição após 3 tentativas
 
     def wake(self) -> None:
@@ -236,7 +241,7 @@ class Conductor:
 
     def _next_deadline_ms(self) -> int:
         now = mono_ms()
-        deadlines = [self._poll_at_mono]
+        deadlines = [self._tick_at_mono, self._poll_at_mono]
         if self.current and self.current.state is PLAYING:
             deadlines.append(self.current.dispatch_next_at_mono)
         return max(50, min(deadlines) - now)
@@ -255,27 +260,38 @@ Três propriedades que essa forma garante e que valem o desenho:
 ```python
     async def _step(self) -> None:
         now = mono_ms()
+        self._tick_at_mono = now + TICK_MS
 
         if now >= self._poll_at_mono:
-            self._poll_at_mono = now + POLL_INTERVAL_MS
+            self._polled_at_mono = now
             snap = await self.spotify.get_playback()      # nunca levanta; RNF-10
             await self._reconcile(snap)
 
-        if self._passive:
-            return
+        try:
+            if self._passive:
+                return
 
-        cur = self.current
-        if cur is None:
-            nxt = queue.peek_next()                       # round-rank; 04 §4
-            if nxt is not None:
-                await self._dispatch(nxt)                 # RF-15 / RF-18
-        elif cur.state is PLAYING and now >= cur.dispatch_next_at_mono:
-            nxt = queue.peek_next()
-            if nxt is not None:
-                await self._dispatch(nxt)                 # RF-16, antecipado
-            else:
-                await self._end_play(cur, "finished")     # RF-17: fila vazia → silêncio
+            cur = self.current
+            if cur is None:
+                nxt = queue.peek_next()                   # round-rank; 04 §4
+                if nxt is not None:
+                    await self._dispatch(nxt)             # RF-15 / RF-18
+            elif cur.state is PLAYING and now >= cur.dispatch_next_at_mono:
+                nxt = queue.peek_next()
+                if nxt is not None:
+                    await self._dispatch(nxt)             # RF-16, antecipado
+                else:
+                    await self._end_play(cur, "finished") # RF-17: fila vazia → silêncio
+        finally:
+            # ancorado no ÚLTIMO poll, não em `now`: `_step` roda a 1 Hz e recalcula isto em todo
+            # tick, então somar ao instante atual empurraria o prazo para sempre.
+            self._poll_at_mono = self._polled_at_mono + self._poll_interval_ms()
 ```
+
+O tick é **local e a 1 Hz**; o poll ao Spotify é que tem cadência variável, escolhida por
+`_poll_interval_ms` com o estado já assentado — daí o `finally`, porque um despacho que acabou de
+sair precisa voltar a 1 Hz para `CONFIRM_TIMEOUT_MS` ter as quatro chances que ele assume. A tabela
+de cadências e o porquê de cada uma estão em [07 §5](07-integracao-spotify.md).
 
 O `else` do último ramo é [RF-17](01-requisitos-funcionais.md) e é o estado **esperado** às 22h30,
 não uma exceção. É por isso que `PlayerState` é união discriminada e não objeto com campos opcionais

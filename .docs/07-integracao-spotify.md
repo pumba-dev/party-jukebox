@@ -172,15 +172,55 @@ Duas consequências que mudam o desenho:
 # bq/spotify/client.py — política, não implementação
 PRIORITY_PLAYBACK = 0     # play, pause, devices, me/player
 PRIORITY_SEARCH   = 1     # /search
+MAX_BACKOFF_SLEEP_MS = 5_000
 
 # 1. Playback nunca espera atrás de busca na fila interna.
 # 2. Um 429 no caminho de busca NÃO pausa o playback: escopos de backoff separados.
 # 3. Retry-After é respeitado à risca; sem Retry-After, backoff 1s → 2s → 4s, teto 3 tentativas.
 # 4. Erro de busca degrada para SEARCH_BUSY (05 §2) — nunca 500.
+# 5. Respeitar o Retry-After NÃO é dormi-lo: acima de MAX_BACKOFF_SLEEP_MS a chamada é recusada
+#    localmente, sem sair para a rede, até o prazo vencer.
+# 6. O `reason` do corpo do 429 é lido e propagado — para o log, para o SpotifyError e para o /host.
 ```
 
-Orçamento em regime: 1 req/s de polling + ~1 despacho a cada 3,5 min + picos de busca. Folgado — mas o
-limitador existe porque o teto real é desconhecido e o modo de falha é público.
+### 🔴 O bloqueio de 01/08/2026, e as duas coisas que ele ensinou
+
+Um app em **development mode** recebeu `Retry-After: 12922` — 3 h 35 min de bloqueio do `client_id`
+inteiro, o mesmo prazo confirmado por duas medições independentes 19 min separadas. O que o produziu
+não foi a festa: foi o poller a 1 Hz fixo, rodando 3 600 requisições/hora em sessões de
+desenvolvimento com a fila vazia. A quota do development mode é bem menor que a de produção, e
+extended quota mode não é saída realista para um projeto pessoal — o dashboard não expõe contador,
+gráfico nem orçamento restante, então o **único** sinal observável é o próprio 429.
+
+**Primeira lição — a cadência do poll é função do estado** ([03 §4.3](03-arquitetura.md),
+`Conductor._poll_interval_ms`). O tick do laço continua local e a 1 Hz; o que varia é o
+`GET /me/player`:
+
+| Cadência | Quando | O que ela protege |
+|---|---|---|
+| `POLL_INTERVAL_MS` 1 s | despacho esperando confirmação, ou turno de karaokê | `DISPATCHING → PLAYING` só sai de `_confirm`, e `CONFIRM_TIMEOUT_MS` (4 s) conta com quatro chances; no karaokê é o poll que recala o Spotify que voltou sozinho, e o preço de atrasar é audível na sala |
+| `POLL_WATCH_MS` 3 s | tocando ou pausado | só vigia interferência externa. Preço: detectar um sequestro em até 3 s em vez de 1 s |
+| `POLL_IDLE_MS` 15 s | ocioso, festa pausada, modo passivo | nada. Não há play aberto para confirmar, proteger ou terminar — era aqui que estavam as 3 600 req/h sem consumidor |
+
+Isso **não** mexe em RNF-02: o despacho é agendado por relógio local 150 ms antes do fim previsto
+(§4.4 de 03), e [02 §1](02-requisitos-nao-funcionais.md) já dizia que *"o polling existe apenas como
+rede de segurança"*. Nem mexe no detector de borda de `_notify_guard_edge`, que roda no tick local e
+não custa requisição.
+
+**Segunda lição — respeitar o `Retry-After` não é dormi-lo.** O código gravava o deadline e fazia
+`continue`; a iteração seguinte dormia o prazo inteiro. Como `get_playback` é chamado de dentro do
+`_lock` do maestro, era um `asyncio.sleep(12922)` com o lock na mão: por 3,5 h nada tocava, nada
+pulava, nenhum karaokê começava, o botão "procurar o device" pendurava sem responder, e o log tinha
+**uma linha**. O `authorize.py` fazia o mesmo e ficava mudo no terminal. Todos os indicadores verdes
+com a sala em silêncio — [RNF-11](02-requisitos-nao-funcionais.md) na veia.
+
+Acima do teto a chamada é recusada **antes de sair para a rede**: não queima orçamento contra um app
+já bloqueado, e quem chamou finalmente vê o motivo — `DeviceResolver` grava em `last_error` e o
+`/host` mostra na aba Saúde, `get_playback` devolve `ok=False`, a busca degrada em `SEARCH_BUSY`.
+
+Orçamento em regime, revisado: ~240 req/h ociosas, ~1 200 req/h tocando, mais os despachos e os picos
+de busca. O limitador continua existindo porque o teto real é desconhecido e o modo de falha é
+público.
 
 ## 6. Leitura de estado
 
@@ -194,8 +234,9 @@ Quando não há playback ativo — que inclui o estado `idle` de [RF-17](01-requ
 **esperado toda vez que a fila esvazia** — a resposta é `204 No Content` com corpo vazio. Chamar
 `response.json()` nisso levanta exceção de parsing, não devolve `None`.
 
-Como o poller roda a 1 Hz, uma exceção não tratada aqui não é um erro ocasional: é o maestro morrendo
-a cada segundo em que a fila estiver vazia. E o `_step()` que morre para de despachar, então a fila
+Como este é o poll periódico do maestro, uma exceção não tratada aqui não é um erro ocasional: é o
+maestro morrendo a cada poll em que a fila estiver vazia — a cada segundo quando o poll era 1 Hz
+fixo, a cada 15 s na cadência ociosa de §5, o que muda a frequência do sintoma e não o sintoma. E o `_step()` que morre para de despachar, então a fila
 vazia se torna **permanente** — sugestões entram, nada toca, e todos os indicadores continuam verdes
 ([RNF-11](02-requisitos-nao-funcionais.md)).
 

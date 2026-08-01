@@ -26,7 +26,10 @@ async def test_uma_mudanca_externa_retoma_o_controle(clk: FakeClock, guest: gues
     primeira = cond.current.play_id
 
     sequestrar(fake)
-    await simulate(cond, clk, 1_500)
+    # 3,5 s e não 1,5: com uma faixa tocando o poll roda a `POLL_WATCH_MS`, então detectar um
+    # sequestro custa até 3 s (`Conductor._poll_interval_ms`). A retomada em si sai no mesmo tick
+    # da detecção — é `_reconcile` quem fecha o play e despacha o seguinte.
+    await simulate(cond, clk, 3_500)
 
     assert party.external_strikes == 1
     assert cond.passive is False, "uma vez não é rendição"
@@ -62,20 +65,23 @@ async def test_faixa_que_toca_inteira_zera_os_strikes(clk: FakeClock, guest: gue
     dois incidentes sem relação nenhuma — com o sintoma aparecendo horas depois da causa.
     """
     cond, fake = build(clk)
+    # 8 s por faixa, e o número importa: detectar um sequestro custa até `POLL_WATCH_MS` (3 s), e
+    # com as 4 s de antes a faixa acabava sozinha ANTES do poll que detectaria — o sequestro saía
+    # mascarado por um `finished` e o teste passaria a exercitar outra coisa.
     for n in range(1, 6):
-        enqueue(fake, guest.id, n, 4_000, clk.wall + n)
+        enqueue(fake, guest.id, n, 8_000, clk.wall + n)
 
     await simulate(cond, clk, 1_500)
     sequestrar(fake)
-    await simulate(cond, clk, 1_500)
+    await simulate(cond, clk, 3_500)
     assert party.external_strikes == 1
 
     # deixa a próxima tocar até o fim
-    await simulate(cond, clk, 6_000)
+    await simulate(cond, clk, 10_000)
     assert party.external_strikes == 0, "a série quebrou"
 
     sequestrar(fake)
-    await simulate(cond, clk, 1_500)
+    await simulate(cond, clk, 3_500)
     assert party.external_strikes == 1 and cond.passive is False
 
 

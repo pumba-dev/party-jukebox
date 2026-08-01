@@ -30,6 +30,21 @@ BASE_URL = "https://api.spotify.com/v1"
 PRIORITY_PLAYBACK = 0  # play, pause, devices, me/player
 PRIORITY_SEARCH = 1  # /search
 
+# 🔴 Teto do sleep de backoff DENTRO da requisição. Respeitar o `Retry-After` é obrigatório
+# (RNF-17) e continua respeitado — o deadline segue gravado em `_backoff_until` até o fim dele. O
+# que este teto proíbe é **dormir** esse tempo aqui.
+#
+# Medido em 01/08/2026: o Spotify devolveu `Retry-After: 12922` (3 h 35 min) a um app em
+# development mode. O código dormia isso com o lock do maestro na mão, o que congelava a festa
+# inteira por horas — sem exceção, sem log além de uma linha, e com todos os indicadores verdes.
+# O `authorize.py` fazia o mesmo e ficava pendurado calado.
+#
+# Acima do teto a chamada é recusada AQUI, antes de sair para a rede: não gasta requisição contra
+# um app já bloqueado, e quem chamou finalmente vê o motivo — `DeviceResolver` grava em
+# `last_error` e o /host mostra, `get_playback` devolve `ok=False`, a busca degrada em
+# `SEARCH_BUSY`. Degradar é o contrato; congelar não era.
+MAX_BACKOFF_SLEEP_MS = 5_000
+
 
 class SpotifyError(Exception):
     def __init__(self, status: int, reason: str = "", retry_after_ms: int = 0) -> None:
@@ -152,6 +167,18 @@ def _retry_after_ms(r: httpx.Response, default_ms: int = 1000) -> int:
         return default_ms
 
 
+def _humano(ms: int) -> str:
+    """🔴 O `Retry-After` em ms é ilegível exatamente quando importa. `Retry-After 12922000 ms`
+    no log não se lê como "3 h 35 min" — se lê como erro de unidade, e foi o que fez um bloqueio
+    de uma tarde inteira parecer um bug de conversão até alguém dividir por 3 600 000 à mão."""
+    s = ms // 1000
+    if s < 60:
+        return f"{s} s"
+    if s < 3600:
+        return f"{s} s ({s // 60} min)"
+    return f"{s} s ({s // 3600} h {s % 3600 // 60} min)"
+
+
 class SpotifyClient:
     MAX_ATTEMPTS = 3
 
@@ -159,6 +186,12 @@ class SpotifyClient:
         self._http = http
         self._auth = auth
         self._backoff_until = {PRIORITY_PLAYBACK: 0, PRIORITY_SEARCH: 0}
+        # O motivo que o Spotify deu no corpo do 429, para a recusa local dizer o mesmo que a
+        # recusa remota — quem lê o log ou o /host não deveria ter de adivinhar a diferença.
+        self._backoff_reason = {PRIORITY_PLAYBACK: "", PRIORITY_SEARCH: ""}
+        # Deadline já anunciado no log. Sem isto, uma recusa local a cada tick repete a mesma
+        # linha por horas; com isto, o bloqueio é anunciado UMA vez por 429 recebido.
+        self._backoff_told = {PRIORITY_PLAYBACK: 0, PRIORITY_SEARCH: 0}
         # a busca é a única coisa que 30 pessoas fazem ao mesmo tempo (RNF-16)
         self._search_gate = asyncio.Semaphore(2)
 
@@ -180,6 +213,19 @@ class SpotifyClient:
             delay_ms = 1000
             for attempt in range(self.MAX_ATTEMPTS):
                 wait = self._backoff_until[priority] - clock.mono_ms()
+                if wait > MAX_BACKOFF_SLEEP_MS:
+                    if self._backoff_told[priority] != self._backoff_until[priority]:
+                        self._backoff_told[priority] = self._backoff_until[priority]
+                        _L.warning(
+                            "escopo %d bloqueado por mais %s (%s) — recusando aqui, sem chamar o "
+                            "Spotify, até o prazo vencer",
+                            priority,
+                            _humano(wait),
+                            self._backoff_reason[priority] or "429 sem motivo no corpo",
+                        )
+                    raise SpotifyError(
+                        429, self._backoff_reason[priority] or "rate limit", wait
+                    )
                 if wait > 0:
                     await asyncio.sleep(wait / 1000)
                 try:
@@ -210,10 +256,22 @@ class SpotifyClient:
                     continue
                 if r.status_code == 429:
                     ra = _retry_after_ms(r)
+                    # 🔴 O corpo do 429 traz `error.reason`/`error.message` e nós nunca líamos: o
+                    # log dizia só o número, então "cota de development mode" e "uma pessoa
+                    # segurando a tecla na busca" produziam a MESMA linha. `_reason` já existe e
+                    # já é usado nos outros 4xx — aqui faltava.
+                    motivo = _reason(r) or "sem motivo no corpo"
                     self._backoff_until[priority] = clock.mono_ms() + ra
-                    _L.warning("429 do Spotify, Retry-After %d ms (escopo %d)", ra, priority)
+                    self._backoff_reason[priority] = motivo
+                    _L.warning(
+                        "429 do Spotify em %s (escopo %d): %s · Retry-After %s",
+                        path,
+                        priority,
+                        motivo,
+                        _humano(ra),
+                    )
                     if attempt == self.MAX_ATTEMPTS - 1:
-                        raise SpotifyError(429, "rate limit", ra)
+                        raise SpotifyError(429, motivo, ra)
                     continue
                 if r.status_code in (500, 502, 503, 504):
                     if attempt == self.MAX_ATTEMPTS - 1:

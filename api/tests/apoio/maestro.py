@@ -121,10 +121,12 @@ def sequestrar(fake: FakeSpotify, uri: str = OUTRA) -> None:
 async def sequestro_completo(cond: Conductor, fake: FakeSpotify, clk: FakeClock) -> None:
     """Sequestra e dá tempo de o maestro detectar, retomar e **confirmar** a retomada.
 
-    Os 2,5 s não são folga arbitrária: o poller roda a 1 Hz, então detectar custa até 1 s e
-    confirmar a retomada custa outro poll. Com menos, a faixa retomada fica em DISPATCHING e o
-    sequestro seguinte cai no caminho de `_chase_confirmation` — que é um cenário diferente, com
-    teste próprio.
+    Os 5 s não são folga arbitrária, e o número mudou de 2,5 s quando o poll deixou de ser 1 Hz
+    fixo: com uma faixa tocando a cadência é `POLL_WATCH_MS`, então **detectar** custa até 3 s.
+    Confirmar a retomada custa outro poll, e esse já é a 1 Hz porque o play volta a DISPATCHING
+    (`Conductor._poll_interval_ms`). Com menos, a faixa retomada fica em DISPATCHING e o sequestro
+    seguinte cai no caminho de `_chase_confirmation` — que é um cenário diferente, com teste
+    próprio, e o sintoma é `external_strikes` não somar.
     """
     sequestrar(fake)
-    await simulate(cond, clk, 2_500)
+    await simulate(cond, clk, 5_000)

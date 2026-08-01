@@ -31,7 +31,7 @@ mapa das camadas, as oito regras e as duas convenções, em 55 linhas.
 |---------|-------|
 | `.\start.ps1` | Sobe tudo (build condicional + uvicorn). Único comando da festa. |
 | `.\start.ps1 -Tv` | O mesmo, e abre a `/tv` em quiosque com a política de autoplay relaxada. Sem isso o karaokê não faz som. A linha de comando é impressa **sempre**, com ou sem o switch. |
-| `cd api; .\.venv\Scripts\python.exe -m pytest -q` | 241 testes, ~35 s, sem rede, sem Spotify e sem YouTube. |
+| `cd api; .\.venv\Scripts\python.exe -m pytest -q` | 253 testes, ~30 s, sem rede, sem Spotify e sem YouTube. |
 | `cd api; .\.venv\Scripts\python.exe -m mypy` | 42 arquivos, hoje limpo. `strict` em 5 módulos. |
 | `cd web; npm run build` | `npm run types && vue-tsc --noEmit && vite build`. **É o typecheck do front.** |
 | `cd web; npm run dev` | Vite :5173 com proxy de `/api`, `/health`, `/ws` para `http://127.0.0.1`. |
@@ -113,6 +113,18 @@ na festa.
 - **Nunca `await` dentro de `with db.tx():`** — é uma conexão SQLite única global compartilhada por
   todas as corrotinas, com `BEGIN IMMEDIATE`. Soltar o loop com a transação aberta faz rota
   concorrente estourar e engole os writes dela no seu ROLLBACK. `ws.notify()` é sempre **fora**.
+- **A cadência do poll é função do estado, e afrouxá-la mais tem preço nomeado.** 1 Hz só com
+  despacho a confirmar (`CONFIRM_TIMEOUT_MS` conta com quatro chances) ou karaokê em curso (é o
+  poll que recala o Spotify que voltou sozinho, e o atraso é audível na sala); 3 s tocando; 15 s
+  ocioso. Tudo em `Conductor._poll_interval_ms`, e o prazo é reprogramado no `finally` de `_step`
+  **ancorado no último poll** — somar a `now` empurraria o prazo para sempre, porque `_step` roda a
+  cada tick. Guarda: `tests/playback/test_cadencia_poll.py`. Mexeu nos números? A janela de
+  `apoio/maestro.py::sequestro_completo` depende de `POLL_WATCH_MS`.
+- **`Retry-After` é respeitado, nunca dormido** — `MAX_BACKOFF_SLEEP_MS = 5_000` em `client.py`.
+  O Spotify devolve bloqueios de horas (medido: 12 922 s num app em development mode), e
+  `get_playback` roda dentro do `_lock` do maestro: dormir o prazo congelava a festa inteira com
+  uma linha de log e todos os indicadores verdes. Acima do teto a chamada é recusada antes de sair
+  para a rede.
 - **`poll.ok == False` ≠ "nada tocando"** — são estados deliberadamente distintos em `Poll`.
   Colapsá-los faz uma oscilação de Wi-Fi de 2 s fechar o play e despachar por cima da faixa.
 - **204 do `start_playback` = "aceito", não "tocando"** — `DISPATCHING → PLAYING` só acontece via

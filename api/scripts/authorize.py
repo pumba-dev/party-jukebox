@@ -1,4 +1,4 @@
-"""Autoriza o bq na sua conta do Spotify. Roda UMA vez, no setup.
+r"""Autoriza o bq na sua conta do Spotify. Roda UMA vez, no setup.
 
     cd api
     .\.venv\Scripts\python scripts\authorize.py

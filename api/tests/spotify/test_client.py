@@ -3,14 +3,16 @@ HTTP, não o duplo de mesa."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from pathlib import Path
 
 import httpx
 import pytest
 
 from bq.spotify.auth import Auth
-from bq.spotify.client import SpotifyClient, SpotifyError
+from bq.spotify.client import MAX_BACKOFF_SLEEP_MS, SpotifyClient, SpotifyError, _humano
 
 
 def make(tmp_path: Path, handler) -> SpotifyClient:  # type: ignore[no-untyped-def]
@@ -106,6 +108,83 @@ async def test_429_respeita_retry_after_e_isola_a_busca(tmp_path: Path) -> None:
     assert client.search_backoff_ms() >= 0
     # playback continua livre
     assert (await client.get_playback()).ok is True
+
+
+async def test_429_longo_recusa_local_em_vez_de_dormir_horas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 A regressão que congelava a festa por horas com todos os indicadores verdes.
+
+    Medido em 01/08/2026 contra um app em development mode: `Retry-After: 12922` — 3 h 35 min. O
+    código gravava o deadline e fazia `continue`, e o topo da iteração seguinte dormia isso. Como
+    `get_playback` é chamado de dentro do `_lock` do maestro, era um `asyncio.sleep(12922)` com o
+    lock na mão: nada tocava, nada pulava, nenhum karaokê começava, e o log tinha UMA linha.
+
+    Respeitar o `Retry-After` continua obrigatório (RNF-17) — o deadline segue gravado e é ele que
+    faz a recusa local durar o bloqueio inteiro. O que não se faz é dormi-lo aqui.
+    """
+    dormidas: list[float] = []
+
+    async def espiao(s: float) -> None:
+        dormidas.append(s)
+
+    monkeypatch.setattr(asyncio, "sleep", espiao)
+
+    chamadas: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chamadas.append(request.url.path)
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "12922"},
+            json={"error": {"status": 429, "message": "API rate limit exceeded"}},
+        )
+
+    client = make(tmp_path, handler)
+    with pytest.raises(SpotifyError) as e:
+        await client.list_devices()
+
+    assert e.value.status == 429
+    assert e.value.retry_after_ms >= 12_900_000, "o prazo do Spotify chega inteiro a quem chamou"
+    assert max(dormidas, default=0.0) <= MAX_BACKOFF_SLEEP_MS / 1000, (
+        f"dormiu {max(dormidas, default=0.0)} s dentro da requisição: é o congelamento de volta"
+    )
+    assert chamadas == ["/v1/me/player/devices"], (
+        "a segunda tentativa não pode nem sair para a rede — o app já está bloqueado, e cada "
+        "chamada contra um app bloqueado é orçamento queimado de graça"
+    )
+
+
+async def test_o_motivo_do_429_chega_ao_log_e_a_quem_chamou(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """O corpo do 429 traz `error.message` e nós nunca líamos. O log dizia só o número, então
+    "cota de development mode" e "alguém segurando a tecla na busca" produziam a MESMA linha —
+    e o número vinha em ms, ilegível: `Retry-After 11765000 ms` não se lê como 3 h 16 min."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "30"},
+            json={"error": {"status": 429, "reason": "RATE_LIMIT_DEV_MODE"}},
+        )
+
+    client = make(tmp_path, handler)
+    with caplog.at_level(logging.WARNING, logger="bq.spotify"):
+        poll = await client.get_playback()
+
+    assert poll.ok is False and poll.error is not None
+    assert "RATE_LIMIT_DEV_MODE" in poll.error, "o motivo tem de sobreviver até o /host"
+    texto = "\n".join(r.getMessage() for r in caplog.records)
+    assert "RATE_LIMIT_DEV_MODE" in texto, f"o motivo não apareceu no log: {texto}"
+    assert "/me/player" in texto, "sem o path não se distingue busca de playback no log"
+
+
+def test_humano_traduz_o_retry_after() -> None:
+    """A tradução existe porque o bloqueio real vem em horas, e em ms parece erro de unidade."""
+    assert _humano(30_000) == "30 s"
+    assert _humano(90_000) == "90 s (1 min)"
+    assert _humano(12_922_000) == "12922 s (3 h 35 min)"
 
 
 async def test_busca_usa_limit_10_e_nao_manda_market(tmp_path: Path) -> None:

@@ -283,10 +283,16 @@ async def resolve_device(_: Host) -> DeviceOut:
     dev = await resolver.resolve()
     runtime.require_conductor().wake()
     if dev is None:
+        # 🔴 O motivo vai na mensagem, não só no `data`. "Não achei o device" com o Spotify aberto
+        # na frente do host é a mensagem que faz ele reabrir o app três vezes enquanto o problema
+        # real era rate limit — `last_error` distingue "não está na lista" de "não consegui
+        # perguntar", e essa é a diferença entre reabrir o Spotify e esperar o prazo vencer.
+        porque = resolver.last_error or "O Spotify está aberto e logado?"
         raise ApiError(
             "NO_DEVICE",
-            f"Não achei o device {resolver.name!r}. O Spotify está aberto e logado?",
+            f"Não achei o device {resolver.name!r}. {porque}",
             deviceName=resolver.name,
+            deviceError=resolver.last_error,
         )
     return DeviceOut(id=dev.id, name=dev.name, resolved_at_ms=dev.resolved_at_ms)
 
