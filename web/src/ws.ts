@@ -46,7 +46,7 @@ function abrir(): void {
     }
     switch (msg.type) {
       case 'hello':
-        store.hello(msg.bootId, msg.joinUrl)
+        store.hello(msg.bootId, msg.joinUrl, msg.wifiQr, msg.wifiSsid)
         return
       case 'state':
         store.apply(msg)

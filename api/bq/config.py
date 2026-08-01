@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 API_DIR = Path(__file__).resolve().parent.parent
@@ -31,6 +32,21 @@ class Settings(BaseSettings):
     spotify_device_name: str = "PUMBABOOK"
 
     host_pin: str = Field(pattern=r"^\d{4}$")
+
+    # Rede da festa, para o segundo QR do /tv. Vazio = o /tv mostra só o QR da fila, como antes;
+    # a feature é estritamente aditiva.
+    #
+    # 🔴 Tem de ser o SSID DE VERDADE. No Windows, `Get-NetConnectionProfile` devolve o nome do
+    # *perfil de rede*, que ganha sufixo quando o SO já viu duas redes distintas com o mesmo nome
+    # — verificado nesta máquina: ele devolveu `Rede_5G 2` para uma rede cujo SSID é `Rede_5G`.
+    # Um QR gerado do valor errado escaneia perfeitamente e conecta em nada.
+    # `netsh wlan show interfaces` dá o valor certo, e o start.ps1 compara e avisa se divergir.
+    wifi_ssid: str = ""
+    wifi_password: str = ""
+    # WPA cobre WPA/WPA2/WPA3 nos leitores nativos de iOS e Android. `SAE` (o nome próprio do
+    # WPA3) tem suporte irregular e não vale o risco numa festa.
+    wifi_auth: Literal["WPA", "WEP", "nopass"] = "WPA"
+    wifi_hidden: bool = False
 
     bind_host: str = "0.0.0.0"
     bind_port: int = Field(default=80, ge=1, le=65535)
@@ -60,6 +76,18 @@ class Settings(BaseSettings):
                 "redirect URI precisa ser loopback por IP (http://127.0.0.1:…) ou https://"
             )
         return v
+
+    @model_validator(mode="after")
+    def _wifi_coerente(self) -> Settings:
+        # SSID preenchido e senha vazia numa rede protegida gera um QR que escaneia bem e falha
+        # ao conectar — sem nada no servidor parecendo errado. Melhor não subir.
+        if self.wifi_ssid and self.wifi_auth != "nopass" and not self.wifi_password:
+            raise ValueError(
+                f"WIFI_SSID está definido com WIFI_AUTH={self.wifi_auth}, "
+                "mas WIFI_PASSWORD está vazio. Preencha a senha, "
+                "ou use WIFI_AUTH=nopass se a rede for aberta."
+            )
+        return self
 
     @property
     def redirect_port(self) -> int:

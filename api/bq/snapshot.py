@@ -158,6 +158,8 @@ def build(guest: Guest | None) -> StateSnapshot:
         v=_version,
         boot_id=party.boot_id,
         join_url=net.join_url(settings.bind_port),
+        wifi_qr=net.wifi_payload(),
+        wifi_ssid=settings.wifi_ssid or None,
         player=_player(),
         queue=_queue(guest),
         skip=_skip(guest),

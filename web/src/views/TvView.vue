@@ -31,16 +31,35 @@ const protecao = computed(() => {
   return until && until > now.value ? until : null
 })
 
+async function gerar(texto: string): Promise<string> {
+  return QRCode.toDataURL(texto, {
+    width: 320,
+    margin: 1,
+    color: { dark: '#0a0a0f', light: '#ffffff' },
+  })
+}
+
 const qr = ref('')
 watch(
   () => party.joinUrl,
   async (url) => {
     if (!url) return
-    qr.value = await QRCode.toDataURL(url, {
-      width: 320,
-      margin: 1,
-      color: { dark: '#0a0a0f', light: '#ffffff' },
-    })
+    qr.value = await gerar(url)
+  },
+  { immediate: true },
+)
+
+/** O QR que conecta o celular na rede. Não é um link: o conteúdo é uma string do esquema
+ * `WIFI:T:WPA;S:…;P:…;;`, que a câmera nativa do iOS 11+ e do Android 10+ reconhece e oferece
+ * "conectar-se à rede". Montada no servidor (bq/net.py), porque o escape é a parte que erra.
+ *
+ * Vazio quando a rede não está configurada, e aí o /tv volta a mostrar um QR só — a ausência
+ * não é um caso de erro, é a configuração de quem não quis usar. */
+const qrWifi = ref('')
+watch(
+  () => party.wifiQr,
+  async (payload) => {
+    qrWifi.value = payload ? await gerar(payload) : ''
   },
   { immediate: true },
 )
@@ -50,11 +69,33 @@ watch(
   <main class="no-select h-dvh overflow-hidden p-10">
     <!-- RF-36 · fila vazia ocupa a tela inteira. É um ramo obrigatório da união, não um v-if no
          fim do arquivo: por ADR-005 este estado acontece DE PROPÓSITO às 22h30. -->
-    <section v-if="vazio" class="flex h-full flex-col items-center justify-center gap-10">
+    <section v-if="vazio" class="flex h-full flex-col items-center justify-center gap-8">
       <p class="text-7xl font-black tracking-tight">a fila está vazia</p>
       <p class="text-mute text-4xl">aponte a câmera e escolha a próxima</p>
-      <img v-if="qr" alt="" class="size-104 rounded-3xl bg-white p-4" :src="qr" />
-      <p class="text-5xl font-bold tabular-nums">{{ party.joinUrl.replace('http://', '') }}</p>
+
+      <!-- Os dois QRs são um PAR NUMERADO, não duas coisas soltas: sem a ordem, quem acabou de
+           chegar escaneia o da fila primeiro, não está na rede ainda, e recebe um erro de
+           conexão — que na experiência dele é a festa estar quebrada. -->
+      <div class="flex items-start gap-16">
+        <div v-if="qrWifi" class="flex flex-col items-center gap-3">
+          <p class="text-mute text-3xl font-semibold">
+            <span class="text-accent font-black">1</span> entre na rede
+          </p>
+          <img alt="" class="size-72 rounded-3xl bg-white p-3" :src="qrWifi" />
+          <p class="text-mute max-w-72 truncate text-3xl">{{ party.wifiSsid }}</p>
+        </div>
+
+        <div class="flex flex-col items-center gap-3">
+          <p class="text-mute text-3xl font-semibold">
+            <span v-if="qrWifi" class="text-accent font-black">2</span> escolha a música
+          </p>
+          <img v-if="qr" alt="" class="size-104 rounded-3xl bg-white p-4" :src="qr" />
+          <p class="text-4xl font-bold tabular-nums">
+            {{ party.joinUrl.replace('http://', '') }}
+          </p>
+        </div>
+      </div>
+
       <p class="text-mute text-3xl">{{ party.guestsOnline }} pessoas na festa</p>
     </section>
 
@@ -140,12 +181,29 @@ watch(
           </ul>
         </div>
 
-        <!-- RF-35 · QR, URL e contagem de gente, permanentes -->
-        <div class="flex shrink-0 flex-col items-center gap-2">
-          <img v-if="qr" alt="" class="size-52 rounded-2xl bg-white p-2" :src="qr" />
-          <p class="text-3xl font-bold tabular-nums">
-            {{ party.joinUrl.replace('http://', '') }}
-          </p>
+        <!-- RF-35 · QR, URL e contagem de gente, permanentes. Permanentes porque gente chega a
+             noite toda: às 23h alguém entra e precisa dos dois passos igual a quem chegou às 20h.
+             Lado a lado e não empilhados porque o eixo apertado aqui é o vertical. -->
+        <div class="flex shrink-0 flex-col items-center gap-3">
+          <div class="flex items-start gap-6">
+            <div v-if="qrWifi" class="flex w-44 flex-col items-center gap-1">
+              <p class="text-mute text-xl font-semibold">
+                <span class="text-accent font-black">1</span> entre na rede
+              </p>
+              <img alt="" class="size-44 rounded-2xl bg-white p-2" :src="qrWifi" />
+              <p class="text-mute w-full truncate text-center text-xl">{{ party.wifiSsid }}</p>
+            </div>
+
+            <div class="flex w-44 flex-col items-center gap-1">
+              <p class="text-mute text-xl font-semibold">
+                <span v-if="qrWifi" class="text-accent font-black">2</span> escolha a música
+              </p>
+              <img v-if="qr" alt="" class="size-44 rounded-2xl bg-white p-2" :src="qr" />
+              <p class="w-full truncate text-center text-xl font-bold tabular-nums">
+                {{ party.joinUrl.replace('http://', '') }}
+              </p>
+            </div>
+          </div>
           <p class="text-mute text-2xl">{{ party.guestsOnline }} pessoas</p>
         </div>
       </section>

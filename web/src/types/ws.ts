@@ -70,6 +70,13 @@ export type StateSnapshot = {
   v: number
   bootId: string
   joinUrl: string
+  /** A string do esquema `WIFI:` — o CONTEÚDO do QR, não uma imagem. Montada no servidor
+   * (bq/net.py) porque o escape é a parte que erra: uma senha com `;` sem barra invertida gera
+   * um QR que escaneia perfeitamente e conecta em nada. `null` = rede não configurada, e o /tv
+   * mostra só o QR da fila. */
+  wifiQr: string | null
+  /** O nome da rede em texto, cru. Confirma para a pessoa que ela entrou na rede certa. */
+  wifiSsid: string | null
   player: PlayerState
   queue: QueueItem[]
   skip: SkipState
@@ -79,6 +86,12 @@ export type StateSnapshot = {
 }
 
 export type ServerMsg =
-  | { type: 'hello'; bootId: string; joinUrl: string }
+  | {
+      type: 'hello'
+      bootId: string
+      joinUrl: string
+      wifiQr: string | null
+      wifiSsid: string | null
+    }
   | ({ type: 'state' } & StateSnapshot)
   | { type: 'notice'; level: 'info' | 'warn'; text: string }

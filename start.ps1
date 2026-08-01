@@ -126,6 +126,31 @@ if (($cand | Measure-Object).Count -gt 1) {
     Write-Host '  Se o escolhido não for o do Wi-Fi da festa, desligue a VPN.' -ForegroundColor Yellow
 }
 
+# --- SSID do QR de Wi-Fi --------------------------------------------------------------------
+# O QR de Wi-Fi do /tv sai do WIFI_SSID do .env. Se ele não for a rede em que este notebook
+# está, o QR manda os convidados para outra rede — e eles não alcançam este servidor. Escanear
+# funciona, conectar funciona, e só a festa não funciona.
+#
+# O cenário provável não é erro de digitação: é o notebook ter caído na banda 2G enquanto o
+# .env diz 5G. Aviso, não erro fatal — pode ser de propósito (roteador dual-band com bandas de
+# nome diferente, mas mesma LAN).
+
+$ssidEnv = Select-String -Path (Join-Path $api '.env') -Pattern '^\s*WIFI_SSID\s*=\s*(.+?)\s*$' -ErrorAction SilentlyContinue
+if ($ssidEnv) {
+    $ssidCfg = $ssidEnv.Matches[0].Groups[1].Value
+    # 🔴 `netsh wlan show interfaces`, e NÃO Get-NetConnectionProfile: este último devolve o
+    # nome do PERFIL de rede, que o Windows sufixa (`Rede_5G 2`) quando já viu duas redes
+    # distintas com o mesmo nome. Comparar com o valor sufixado daria falso positivo sempre.
+    $iface = netsh wlan show interfaces 2>$null | Out-String
+    $m = [regex]::Match($iface, '(?im)^\s*SSID\s*:\s*(.+?)\s*$')
+    if ($m.Success -and $m.Groups[1].Value -cne $ssidCfg) {
+        Write-Host ''
+        Write-Host "  ⚠  o QR de Wi-Fi apontará para '$ssidCfg', mas este notebook está em '$($m.Groups[1].Value)'." -ForegroundColor Yellow
+        Write-Host '     Se as duas não forem a mesma LAN, o convidado conecta e não alcança o servidor.' -ForegroundColor Yellow
+        Write-Host '     Ajuste WIFI_SSID no api\.env.' -ForegroundColor Yellow
+    }
+}
+
 if ($porta -eq 80) { $url = "http://$ip" } else { $url = "http://${ip}:$porta" }
 
 $linha = '=' * 60

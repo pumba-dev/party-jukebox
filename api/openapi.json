@@ -1309,6 +1309,28 @@
             "type": "string",
             "title": "Joinurl"
           },
+          "wifiQr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wifiqr"
+          },
+          "wifiSsid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wifissid"
+          },
           "player": {
             "oneOf": [
               {
@@ -1368,6 +1390,8 @@
           "v",
           "bootId",
           "joinUrl",
+          "wifiQr",
+          "wifiSsid",
           "player",
           "queue",
           "skip",

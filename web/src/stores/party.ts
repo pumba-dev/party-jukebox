@@ -17,6 +17,8 @@ export const useParty = defineStore('party', () => {
   const settings = ref<Settings | null>(null)
   const guestsOnline = ref(0)
   const joinUrl = ref('')
+  const wifiQr = ref<string | null>(null)
+  const wifiSsid = ref<string | null>(null)
   const bootId = ref('')
   const v = ref(0)
   const connected = ref(false)
@@ -42,12 +44,22 @@ export const useParty = defineStore('party', () => {
     settings.value = s.settings
     guestsOnline.value = s.guestsOnline
     joinUrl.value = s.joinUrl
-    hello(s.bootId, s.joinUrl)
+    hello(s.bootId, s.joinUrl, s.wifiQr, s.wifiSsid)
     connected.value = true
   }
 
-  function hello(novoBootId: string, url: string): void {
+  /** Os parâmetros de Wi-Fi são obrigatórios e não opcionais de propósito: as duas fontes (a
+   * mensagem `hello` e o `apply` do snapshot) carregam os campos, e deixá-los opcionais
+   * permitiria um terceiro chamador zerar o QR do Wi-Fi sem querer. */
+  function hello(
+    novoBootId: string,
+    url: string,
+    qrWifi: string | null,
+    ssid: string | null,
+  ): void {
     joinUrl.value = url
+    wifiQr.value = qrWifi
+    wifiSsid.value = ssid
     if (bootId.value && bootId.value !== novoBootId) {
       // o servidor subiu de novo, possivelmente com bundle nova: um cliente antigo com tipos
       // antigos falhando em silêncio é pior que um reload (06 §7)
@@ -76,6 +88,8 @@ export const useParty = defineStore('party', () => {
     settings,
     guestsOnline,
     joinUrl,
+    wifiQr,
+    wifiSsid,
     bootId,
     v,
     connected,

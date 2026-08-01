@@ -20,7 +20,7 @@ from starlette.websockets import WebSocketState
 
 from . import guests, log, runtime, snapshot
 from .config import settings
-from .net import join_url
+from .net import join_url, wifi_payload
 from .party import party
 
 _L = log.get("ws")
@@ -43,7 +43,16 @@ class Hub:
 
     async def register(self, conn: Conn) -> None:
         self.conns.append(conn)
-        await self._send(conn, {"type": "hello", "bootId": party.boot_id, "joinUrl": join_url(settings.bind_port)})
+        await self._send(
+            conn,
+            {
+                "type": "hello",
+                "bootId": party.boot_id,
+                "joinUrl": join_url(settings.bind_port),
+                "wifiQr": wifi_payload(),
+                "wifiSsid": settings.wifi_ssid or None,
+            },
+        )
         await self.broadcast_state()  # o novo vê o estado, e os outros veem o contador subir
 
     async def unregister(self, conn: Conn) -> None:

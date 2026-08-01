@@ -77,6 +77,7 @@ notepad api\.env
 | `SPOTIFY_REDIRECT_URI` | o mesmo do passo 1 |
 | `SPOTIFY_DEVICE_NAME` | nome com que o app desktop aparece — normalmente o nome do computador |
 | `HOST_PIN` | 4 dígitos, para abrir o `/host` |
+| `WIFI_SSID` / `WIFI_PASSWORD` | a rede da festa, para o QR de conexão do `/tv`. Opcional — vazio esconde esse QR |
 
 Se faltar alguma chave, o boot **aborta com mensagem legível** dizendo qual. Descobrir que o PIN não
 estava setado às 21h, com convidados chegando, é pior que não subir às 18h.
@@ -141,7 +142,7 @@ Ele builda o frontend se algo mudou, confere a porta, e imprime em destaque as t
 | Tela | Onde | O que é |
 |---|---|---|
 | `/` | celular dos convidados | apelido, busca, sugerir, votar para pular |
-| `/tv` | monitor, em fullscreen | faixa atual, fila, contador de skip, QR. **Nada clicável** |
+| `/tv` | monitor, em fullscreen | faixa atual, fila, contador de skip, **dois QRs**. **Nada clicável** |
 | `/host` | seu notebook | pular, pausar, tocar agora, remover, limiares, saúde |
 
 Para o monitor, Chromium em modo quiosque — sem cursor, sem barra, sem risco de alguém navegar:
@@ -149,6 +150,23 @@ Para o monitor, Chromium em modo quiosque — sem cursor, sem barra, sem risco d
 ```powershell
 start chrome --kiosk http://127.0.0.1/tv
 ```
+
+### Os dois QRs do `/tv`
+
+O monitor mostra um par **numerado**, e a ordem não é decoração:
+
+| | O que faz |
+|---|---|
+| **1 · entre na rede** | conecta o celular no Wi-Fi de casa. Não é um link: o QR carrega uma string `WIFI:T:WPA;S:…;P:…;;`, que a câmera nativa do iOS 11+ e do Android 10+ reconhece e oferece "conectar-se à rede" |
+| **2 · escolha a música** | abre a página dos convidados |
+
+Sem a numeração, quem acaba de chegar escaneia o segundo primeiro, ainda não está na rede, e
+recebe um erro de conexão — que na experiência dele é a festa estar quebrada. Se `WIFI_SSID`
+estiver vazio no `.env`, o primeiro QR simplesmente não aparece.
+
+O `start.ps1` compara o `WIFI_SSID` com a rede em que o notebook está de fato e avisa se
+divergirem: o QR mandando os convidados para a rede errada é uma falha em que escanear funciona,
+conectar funciona, e só o servidor fica inalcançável.
 
 ---
 

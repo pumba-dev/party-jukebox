@@ -130,6 +130,17 @@ class StateSnapshot(Model):
     v: int
     boot_id: str
     join_url: str
+    # A string do esquema `WIFI:` (bq/net.py), não uma imagem: quem renderiza o QR é o /tv, com
+    # a mesma lib que já usa para o outro. `None` quando a rede não foi configurada.
+    #
+    # Vai no snapshot de todos, e não só para o /tv, por dois motivos. Consistência: `join_url`
+    # já é config estática viajando por aqui, para o primeiro paint não depender do handshake do
+    # socket. E não há o que proteger — quem recebe este snapshot já está na rede, senão não
+    # teria chegado ao servidor.
+    wifi_qr: str | None
+    # O nome da rede em texto, ao lado do QR. Não é redundante: entre as cinco redes do vizinho,
+    # é como a pessoa confirma que entrou na certa. Cru, sem o escape do esquema.
+    wifi_ssid: str | None
     player: PlayerState
     queue: list[QueueItem]
     skip: SkipState
