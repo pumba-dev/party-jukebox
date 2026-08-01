@@ -13,8 +13,8 @@ import importlib
 
 import pytest
 
-from bq import clock, conductor, guards, tracks
-from bq.conductor import Play
+from bq import clock, conductor, guards, play, tracks
+from bq.play import Play
 
 from ..conftest import FakeClock, make_track
 from .varredura import expostos, modulos, nos
@@ -88,6 +88,7 @@ def test_o_alvo_do_conftest_e_o_mesmo_objeto_que_os_consumidores_veem() -> None:
     assert alvo is clock
     assert alvo is conductor.clock
     assert alvo is guards.clock
+    assert alvo is play.clock
 
 
 def test_o_patch_do_conftest_aponta_para_um_modulo_que_existe(clk: FakeClock) -> None:

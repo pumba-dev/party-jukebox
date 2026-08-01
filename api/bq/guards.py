@@ -16,13 +16,11 @@ acidente. Ver o docstring de `_notify_guard_edge`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from . import clock
 from .party import S, party
-
-if TYPE_CHECKING:  # só o tipo; importar em runtime faria ciclo com o maestro
-    from .conductor import Play
+from .play import Play
 
 BlockedReason = Literal["PROTECTED", "TOO_EARLY", "ALMOST_OVER", "SKIP_COOLDOWN"]
 

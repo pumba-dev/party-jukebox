@@ -45,6 +45,7 @@ PENDENTE = {
     "bq.log",
     "bq.net",
     "bq.party",
+    "bq.play",
     "bq.queue",
     "bq.snapshot",
     "bq.tracks",

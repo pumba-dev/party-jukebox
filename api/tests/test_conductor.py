@@ -6,7 +6,8 @@ from __future__ import annotations
 from typing import Any, cast
 
 from bq import db, guests, queue, runtime
-from bq.conductor import DISPATCH_LEAD_MS, Conductor, PlayState
+from bq.conductor import Conductor
+from bq.play import DISPATCH_LEAD_MS, PlayState
 from bq.spotify.client import TrackData
 from bq.spotify.device import DeviceResolver
 

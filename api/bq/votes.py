@@ -6,7 +6,7 @@ Especificação normativa: .docs/05-api-http.md §4.
 from __future__ import annotations
 
 from . import clock, db, guards, runtime, ws
-from .conductor import Play, PlayState
+from .play import Play, PlayState
 from .errors import ApiError
 from .guests import Guest
 from .models import VoteOut

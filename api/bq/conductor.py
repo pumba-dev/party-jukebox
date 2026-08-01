@@ -19,12 +19,10 @@ Três propriedades que a forma deste laço garante:
 from __future__ import annotations
 
 import asyncio
-import enum
-from dataclasses import dataclass, field
-from typing import Final, Literal
 
 from . import clock, db, guards, log, queue, tracks, ws
 from .party import S, party
+from .play import Play, PlayState
 from .queue import QueuedItem
 from .spotify.client import Poll, Playback, SpotifyClient, SpotifyError
 from .spotify.device import DeviceResolver
@@ -33,11 +31,6 @@ from .tracks import TrackRow
 _L = log.get("maestro")
 
 POLL_INTERVAL_MS = 1_000
-
-# 🔴 O único número deste projeto que merece um cronômetro (tarefa M0.13).
-# Alto demais corta o final das músicas; baixo demais devolve o silêncio do RNF-02.
-# Duas mecânicas puxando a mesma constante. 150 é palpite fundamentado, não medição.
-DISPATCH_LEAD_MS = 150
 
 # Quanto esperamos a confirmação do poller antes de reemitir o despacho.
 CONFIRM_TIMEOUT_MS = 4_000
@@ -60,65 +53,6 @@ MAX_FAILS_PER_SUGGESTION = 3
 MAX_EXTERNAL_STRIKES = 3
 
 
-class PlayState(enum.Enum):
-    DISPATCHING = "dispatching"
-    PLAYING = "playing"
-    PAUSED = "paused"
-
-
-# Sentinela de `Play.last_blocked`: o laço ainda não olhou esta faixa. Não é `None`, porque
-# `None` já significa "não bloqueada" — e a diferença entre as duas é o que impede o primeiro
-# tick de cada faixa de duplicar o broadcast que a abertura do play já emitiu.
-NAO_AVALIADO: Final = "?"
-
-
-@dataclass
-class Play:
-    """Um play em curso. Vive SÓ em memória.
-
-    🔴 `anchor_mono` é monotônico e por isso nunca vai para o banco (04 §2): um mono_ms
-    persistido é lixo depois de restart e continua *parecendo* um timestamp válido. É também
-    a razão de RF-40 (readotar playback) precisar de um `GET /me/player` fresco, e de ser M2.
-    """
-
-    play_id: int
-    track: TrackRow
-    duration_ms: int
-    source: str
-    suggestion_id: int | None = None
-    guest_id: int | None = None
-    nickname: str | None = None
-    protected_until: int = 0  # parede (RF-26)
-    started_at: int = field(default_factory=lambda: clock.wall_ms())  # parede
-    state: PlayState = PlayState.DISPATCHING
-    dispatched_at_mono: int = field(default_factory=lambda: clock.mono_ms())
-    anchor_mono: int = field(default_factory=lambda: clock.mono_ms())
-    anchor_wall: int = field(default_factory=lambda: clock.wall_ms())
-    start_pos_ms: int = 0
-    attempts: int = 1
-    # O último veredito de `guards.blocked()` que o laço viu, só para detectar a BORDA. Vive
-    # aqui e não no maestro porque morre com a faixa: não há valor de outra música para vazar,
-    # nem bookkeeping de reset em `_end_play`.
-    last_blocked: guards.BlockedReason | None | Literal["?"] = NAO_AVALIADO
-
-    def heard_ms(self) -> int:
-        if self.state is PlayState.PAUSED:
-            return self.start_pos_ms
-        return self.start_pos_ms + (clock.mono_ms() - self.anchor_mono)
-
-    def remaining_ms(self) -> int:
-        return self.duration_ms - self.heard_ms()
-
-    @property
-    def dispatch_next_at_mono(self) -> int:
-        """Instante local em que o despacho da PRÓXIMA faixa tem de sair.
-
-        Propriedade e não campo: qualquer re-ancoragem (confirmação, correção de deriva,
-        retomada de pausa) recalcula isto sozinha, e não existe cópia para ficar velha.
-        """
-        return self.anchor_mono + (self.duration_ms - self.start_pos_ms) - DISPATCH_LEAD_MS
-
-
 class Conductor:
     def __init__(self, spotify: SpotifyClient, device: DeviceResolver) -> None:
         self.spotify = spotify
@@ -131,6 +65,12 @@ class Conductor:
         self._passive = False  # RF-19 / M2.3: rendição após 3 tentativas
         self._fail_sug_id: int | None = None
         self._fail_count = 0
+        # (play_id, último veredito de `guards.blocked`) — só para detectar a BORDA.
+        #
+        # Mora aqui e não no `Play` para `play.py` continuar folha: o tipo do motivo é de
+        # `guards`, e `guards` importa `Play`. E a comparação de `play_id` já é a sentinela —
+        # faixa nova nunca conta como mudança, porque quem a abriu já avisou as telas.
+        self._last_blocked: tuple[int, guards.BlockedReason | None] | None = None
         self._last_poll_error: str | None = None
         self._last_poll_error_at = 0
 
@@ -269,14 +209,13 @@ class Conductor:
         """
         cur = self.current
         if cur is None:
-            return  # sem faixa não há guarda; `_end_play` já avisou as telas
+            self._last_blocked = None  # sem faixa não há guarda; `_end_play` já avisou as telas
+            return
         reason = guards.blocked(cur)
         novo = None if reason is None else reason[0]
-        if novo == cur.last_blocked:
-            return
-        primeira_vez = cur.last_blocked == NAO_AVALIADO
-        cur.last_blocked = novo
-        if not primeira_vez:
+        anterior = self._last_blocked
+        self._last_blocked = (cur.play_id, novo)
+        if anterior is not None and anterior[0] == cur.play_id and anterior[1] != novo:
             await ws.notify()
 
     # --- readoção após restart (RF-40) -----------------------------------------------------

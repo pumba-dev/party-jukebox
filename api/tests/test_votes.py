@@ -10,7 +10,8 @@ from typing import Any
 import pytest
 
 from bq import db, guards, guests, queue, runtime, votes, ws
-from bq.conductor import NAO_AVALIADO, POLL_INTERVAL_MS, Conductor, PlayState
+from bq.conductor import POLL_INTERVAL_MS, Conductor
+from bq.play import PlayState
 from bq.errors import ApiError
 from bq.party import S, party
 
@@ -118,20 +119,21 @@ async def test_borda_nao_repete_broadcast_a_cada_tick(
     assert [b.reason for b in vistos] == [None], f"{len(vistos)} broadcasts em 1 500 ticks"
 
 
-async def test_a_sentinela_impede_borda_no_primeiro_olhar(
+async def test_faixa_nova_nao_gera_borda_no_primeiro_olhar(
     clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Faixa recém-aberta já é `TOO_EARLY`, e quem a abriu já avisou as telas. Sem a sentinela,
-    o primeiro tick veria "mudou de None para TOO_EARLY" e duplicaria aquele broadcast."""
+    """Faixa recém-aberta já é `TOO_EARLY`, e quem a abriu já avisou as telas. Sem a comparação
+    de `play_id`, o primeiro tick veria "mudou de None para TOO_EARLY" e duplicaria aquele
+    broadcast — uma vez por música, a festa inteira."""
     cond, _, _ = await tocando(clk)
     cur = cond.current
     assert cur is not None
-    cur.last_blocked = NAO_AVALIADO  # como uma faixa acabada de abrir
+    cond._last_blocked = None  # noqa: SLF001 — como uma faixa acabada de abrir
 
     vistos = espiao_de_broadcast(monkeypatch, clk)
     await cond._notify_guard_edge()  # noqa: SLF001 — é o que está sob teste
     assert vistos == [], "o primeiro olhar só memoriza"
-    assert cur.last_blocked == "TOO_EARLY"
+    assert cond._last_blocked == (cur.play_id, "TOO_EARLY")  # noqa: SLF001
 
     clk.advance(S.min_heard_ms + 1_000)
     await cond._notify_guard_edge()  # noqa: SLF001

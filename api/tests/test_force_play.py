@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bq import db, guards, guests, queue, tracks, votes
-from bq.conductor import PlayState
+from bq.play import PlayState
 from bq.errors import ApiError
 from bq.party import S
 
