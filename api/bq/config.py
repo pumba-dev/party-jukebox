@@ -16,7 +16,26 @@ from typing import Literal
 from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-API_DIR = Path(__file__).resolve().parent.parent
+def _api_dir() -> Path:
+    """A pasta `api/`, achada pela ÂNCORA e não pela contagem de níveis.
+
+    🔴 `Path(__file__).parent.parent` acopla este arquivo à profundidade dele na árvore, e errar
+    essa contagem é uma falha silenciosa: `.env`, `party.db`, `party.log`, `.tokens.json` e
+    `web_dist` passam todos a apontar para o lugar errado, e **nada falha em teste**, porque o
+    conftest injeta as variáveis de ambiente. O sintoma chega na festa, com uma mensagem que
+    aponta para a causa errada ("campo obrigatório ausente").
+    """
+    for p in Path(__file__).resolve().parents:
+        if (p / "pyproject.toml").is_file():
+            return p
+    raise RuntimeError(
+        f"não achei pyproject.toml acima de {Path(__file__).resolve()}. "
+        "O bq roda a partir do repositório (pip install -e .); uma cópia solta em site-packages "
+        "não tem onde guardar .env nem party.db."
+    )
+
+
+API_DIR = _api_dir()
 
 
 class Settings(BaseSettings):
