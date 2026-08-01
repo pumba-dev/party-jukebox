@@ -60,6 +60,10 @@ sugeriu vai tocar em seguida. Quase todo requisito de "informar" cai nele, não 
 - Tela `/tv` para o monitor.
 - Painel `/host` com controle total, protegido por PIN.
 - Histórico persistido do que tocou e de quem sugeriu, sobrevivendo a restart do servidor.
+- **Karaokê** (M3): o convidado escolhe um vídeo do YouTube para cantar, a `/tv` o chama pelo nome
+  e espera, e o vídeo toca num iframe da própria `/tv` — instrumental e letra vêm no vídeo. O
+  Spotify não participa disso, e a razão é dupla e sem contorno
+  ([ADR-011](adr/ADR-011-karaoke-na-tv.md)).
 
 ### Fora — e por quê
 
@@ -77,6 +81,9 @@ Cada item aqui foi considerado e recusado. A recusa é o conteúdo.
 | **Observabilidade (métricas, tracing, agregação de logs)** | Log em texto no console e no arquivo. O operador está a 2 metros do servidor. |
 | **Deploy, CI, containers** | Roda em `python -m bq` na sua máquina. `start.ps1` e pronto. |
 | **Park/resume no force-play** | Adiado para M2 — [ADR-008](adr/ADR-008-force-play-simples-vs-park-resume.md). |
+| **Letra vinda de API** (LRCLIB, Musixmatch) | A letra vem **queimada** no vídeo de karaokê. Buscá-la fora significaria sincronizar duas fontes de tempo sobre um player que não controlamos, e letra fora de sincronia numa TV de 40 polegadas é pior que letra nenhuma ([ADR-011](adr/ADR-011-karaoke-na-tv.md)). |
+| **Remoção de voz local** (Demucs e afins) | O `bq` nunca vê um sample de áudio. Precisaria baixar a faixa e custaria minutos de CPU com a pessoa esperando de pé. |
+| **Votação para pular quem está cantando** | Calar alguém no microfone na frente de trinta pessoas é um objeto social diferente de pular uma música ([RF-49](01-requisitos-funcionais.md)). Some estruturalmente da união de `PlayerState`, sem flag. |
 
 ### 🔴 A fronteira que mais importa
 

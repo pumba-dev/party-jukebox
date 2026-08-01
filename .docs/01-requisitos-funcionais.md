@@ -245,6 +245,32 @@ por RF-26 — senão o `/tv` anuncia uma faixa e a sala ouve outra.
 a fila vazia é perder o estado social da festa — as 12 pessoas que sugeriram algo teriam de sugerir
 de novo, e a maioria não vai. Vem de graça com SQLite ([ADR-002](adr/ADR-002-fastapi-sqlite-stdlib.md)).
 
+## I. Karaokê (M3)
+
+| # | Requisito | M |
+|---|---|---|
+| **RF-43** | O convidado escolhe, numa aba própria, um vídeo de karaokê para **cantar**. Ele entra na mesma fila das músicas. | M3 |
+| **RF-44** | O host configura a proporção: um karaokê a cada **N** músicas normais, com `N = 0` desligando a feature. | M3 |
+| **RF-45** | O host pode ligar o **modo só karaokê**: as músicas normais ficam guardadas na fila e a festa espera em silêncio se não houver karaokê — de propósito, e a `/tv` explica. | M3 |
+| **RF-46** | Quando chega a vez, o Spotify **cala** e a `/tv` chama a pessoa pelo nome, com contagem regressiva. Nada toca até ela começar. | M3 |
+| **RF-47** | Quem começa é a **própria pessoa**, pelo celular. O host pode começar por ela quando o celular não ajuda. | M3 |
+| **RF-48** | A vez não iniciada dentro do prazo vai para o **fim da fila**; na segunda falta, sai. | M3 |
+| **RF-49** | Enquanto alguém canta, **não há votação para pular**. O host continua podendo encerrar. | M3 |
+| **RF-50** | No fim, a `/tv` mostra "Parabéns!" por alguns segundos e a fila normal continua **sozinha**. | M3 |
+| **RF-51** | Só **uma** `/tv` faz som. Uma segunda tela mostra a chamada e o fim, e fica muda. | M3 |
+
+**RF-46 e RF-49 são os dois que carregam a decisão social.** A chamada com o Spotify calado é o
+que faz a vez ser um *evento* em vez de uma faixa a mais; e a ausência de votação existe porque
+calar quem está cantando na frente de trinta pessoas é um objeto social diferente de pular uma
+música. RF-49 sai de graça da união discriminada de `PlayerState` — não há flag para esquecer.
+
+**RF-51 não é preciosismo.** Duas `/tv` abertas fazem a sala ouvir dois players dessincronizados,
+sem erro em lugar nenhum e com as duas telas certas. O servidor arbitra a posse; ver
+[ADR-011](adr/ADR-011-karaoke-na-tv.md).
+
+Por que YouTube e não Spotify — a limitação é dupla e nenhuma das duas metades tem contorno
+aceitável — está inteiro no [ADR-011](adr/ADR-011-karaoke-na-tv.md).
+
 ---
 
 ## Rastreabilidade

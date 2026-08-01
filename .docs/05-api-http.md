@@ -154,6 +154,94 @@ ele. Dois endpoints tornam a classe de bug inexpressável.
 
 Ambos aceitam repetição: votar duas vezes devolve `200` com o mesmo estado, sem erro.
 
+### `GET /api/karaoke/search?q=` · [RF-43](01-requisitos-funcionais.md)
+Acervo do YouTube, não do Spotify. Mesmo mínimo de 2 caracteres e o mesmo `queueable` calculado no
+servidor contra a fila de agora.
+
+```
+← 200 { "results": [ { "videoId": "dQw4w9WgXcQ", "title": "…", "channel": "…",
+                       "thumbUrl": "…", "durationMs": 289000,
+                       "queueable": true, "blockedReason": null, "blockedBy": null } ] }
+   422 KARAOKE_UNAVAILABLE   sem chave, chave recusada, ou o host desligou — as três iguais
+   409 SEARCH_BUSY           { "retryAfterMs": 1200 }   cota ou backoff
+```
+
+🔴 **Não há `PLAYED_RECENTLY` aqui.** Cantar "Evidências" e ouvir "Evidências" são `track_id`
+diferentes e experiências diferentes; a janela de repetição não deve ligar as duas.
+
+**Sugerir um karaokê não tem rota própria:** é `POST /api/suggestions` com um `trackId` que começa
+com `yt:`. Uma segunda porta de entrada na fila seria uma segunda chance de esquecer uma das cinco
+validações do §3. O passo 1 dessa rota passa a ser "o karaokê está ligado?", **antes** do cooldown,
+para que uma recusa não gaste a vez de ninguém ([RF-09](01-requisitos-funcionais.md)).
+
+### `POST /api/karaoke/start` · [RF-47](01-requisitos-funcionais.md)
+A pessoa tocou INICIAR no próprio celular.
+
+```
+→ { "suggestionId": 42 }
+← 200 { "playId": 91 }
+   403 NOT_YOUR_TURN   é a vez de outra pessoa
+   409 STALE_TURN      a vez já passou, ou a sugestão saiu da fila nesse meio tempo
+```
+
+🔴 O `suggestionId` no corpo não é decorativo: sem ele, um toque atrasado no botão do turno
+anterior começaria a vez de outra pessoa. Mesma função do `playId` no voto de skip.
+
+A decisão inteira mora no maestro, sob o lock. Checar na rota seria checar contra um estado que
+pode mudar entre a leitura e o `_open`.
+
+## 3.1. Rotas da `/tv`
+
+Sem cookie, e é decisão — não omissão. A `/tv` não tem `bq_guest` e não pode ter: `guestsOnline`
+conta por token ([06 §4](06-realtime-websocket.md)), e dar um a ela a faria contar como pessoa.
+[ADR-007](adr/ADR-007-escopo-de-seguranca-reduzido.md) já reduziu o escopo para "uma noite, LAN,
+gente de boa fé". Três controles compensatórios, que custam quase nada:
+
+1. **validação estrita por pydantic** (`Literal`, `ge/le`, `max_length`) — é a fronteira não
+   confiável melhor validada do sistema;
+2. **o `playId` prende o relatório à vez ABERTA** — um atrasado ou duplicado é ignorado com 200, e
+   não encerra a vez de ninguém;
+3. **escopo mínimo** — o relatório só refina a âncora de um play de karaokê já aberto. Não abre
+   play, não muda fila, não vota.
+
+O gancho para autenticar depois, se um dia valer, está documentado em `routes/karaoke.py`.
+
+### `POST /api/tv/claim` · [RF-51](01-requisitos-funcionais.md)
+A `/tv` bate aqui a cada 10 s. **Só uma tela faz som.**
+
+```
+→ { "tvId": "tv-k3n8x2p1q7-m9v" }      (gerado no cliente, vive no sessionStorage da aba)
+← 200 { "owner": true }
+```
+
+Primeira-a-chegar-enquanto-bater, TTL de 25 s. Última-ganha seria pior: a aba aberta por
+curiosidade roubaria o som do monitor no meio da música. O TTL é o que ainda permite trocar de
+tela — a dona morta libera em 25 s.
+
+🔴 O `tvId` é gerado no **cliente** porque `sessionStorage` sobrevive ao F5 da mesma aba: recarregar
+a `/tv` no meio de um karaokê reapresenta o mesmo id e a posse volta na hora.
+
+### `POST /api/tv/release`
+Chega por `navigator.sendBeacon` no `pagehide`. Libera a posse na hora em vez de esperar o TTL —
+sem isto, trocar a `/tv` de monitor custa 25 s de silêncio sem nenhuma pista na tela. Só quem é
+dono libera.
+
+### `POST /api/tv/report`
+1 Hz enquanto canta, mais um imediato a cada mudança de estado do player.
+
+```
+→ { "playId": 91, "tvId": "…", "state": "playing", "positionMs": 42000, "error": null }
+← 200 { "accepted": true }
+```
+
+🔴 **`ended` e `error` são AFIRMAÇÕES** e fecham a vez na hora; `playing`/`paused` só reancoram. O
+silêncio — a **ausência** de relatório — entra por outra porta (o teto do maestro) e **nunca** vira
+"acabou". São `if`s diferentes, com teste para a distinção; é a mesma lição de `poll.ok == False` ≠
+"nada tocando".
+
+`accepted: false` não é erro: a `/tv` pode ter um relatório em voo quando a vez encerra, e
+responder 409 faria a tela pintar um problema que não existe.
+
 ## 4. As guardas de voto — normativo
 
 ```python
@@ -226,6 +314,21 @@ Todas exigem `bq_host` → `403 NOT_HOST`.
 ```
 → { "pin": "4271" }        ← 200 {} + Set-Cookie: bq_host=…    |    401 BAD_PIN
 ```
+
+### `POST /api/host/karaoke/start` · [RF-47](01-requisitos-funcionais.md)
+O host começa a vez **pela pessoa**: o celular dela morreu, ou ela já está de pé na frente da TV
+com o microfone. Mesmo corpo e mesmas recusas de `/api/karaoke/start`, sem a checagem de dono.
+
+### `POST /api/host/karaoke/cancel?penalize=false`
+Encerra a vez em curso.
+
+- **`penalize=false`** (o default) é o botão "**Passar a vez**": não conta falta, porque quem
+  decidiu foi o host e não a ausência dela. A sugestão vai para o **fim da fila** e fica **fria**
+  pelo tempo de espera configurado. 🔴 As duas coisas, e não só o `send_to_back`: sem esfriar, a
+  ordenação a reoferece no tick seguinte e a mesma pessoa é chamada de novo um segundo depois.
+- **`penalize=true`** conta como falta, e na segunda a sugestão sai da fila.
+- Com alguém **cantando**, encerra o play pelo caminho normal (`_end_play` → "Parabéns" dizendo
+  que foi encerrada).
 
 ### `POST /api/host/force-play` · [RF-26](01-requisitos-funcionais.md)
 ```

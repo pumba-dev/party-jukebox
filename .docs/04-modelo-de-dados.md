@@ -107,14 +107,19 @@ CREATE TABLE guest (
 );
 
 CREATE TABLE track (
-  id          TEXT    PRIMARY KEY,                   -- TrackId (22 base62)
-  uri         TEXT    NOT NULL,                      -- TrackUri
+  id          TEXT    PRIMARY KEY,                   -- TrackId (22 base62) | 'yt:<videoId>'
+  uri         TEXT    NOT NULL,                      -- TrackUri | 'youtube:<videoId>'
   name        TEXT    NOT NULL,
-  artists     TEXT    NOT NULL,                      -- já formatado "A, B"
+  artists     TEXT    NOT NULL,                      -- já formatado "A, B" | o canal do YouTube
   album       TEXT    NOT NULL,
   art_url     TEXT,
   duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
-  explicit    INTEGER NOT NULL DEFAULT 0
+  explicit    INTEGER NOT NULL DEFAULT 0,
+  -- M3 · de onde toca. O karaokê é uma linha de `track` como qualquer outra, e isso é o que
+  -- reusa `suggestion`, `play`, `_end_play`, `ux_sug_active_track`, `repeat_window_ms` e o
+  -- /historico sem uma linha nova em cada. Ver ADR-011.
+  provider    TEXT    NOT NULL DEFAULT 'spotify'
+                      CHECK (provider IN ('spotify','karaoke'))
 );
 
 CREATE TABLE play (
@@ -146,6 +151,13 @@ CREATE TABLE suggestion (
                  ('queued','playing','played','skipped','removed')),
   play_id      INTEGER REFERENCES play(id),
   interrupts   INTEGER NOT NULL DEFAULT 0,           -- quantas vezes foi interrompida
+  -- M3 · karaokê. Chamamos e ninguém veio: a 1ª falta manda para o fim da fila, a 2ª tira.
+  noshows      INTEGER NOT NULL DEFAULT 0,
+  -- 🔴 PAREDE e persistido, não estado do maestro. Se a fila só tem este karaokê,
+  -- `send_to_back` não muda nada e o turno reabriria num laço — a mesma pessoa chamada a cada
+  -- N segundos, a noite toda. `queue.ordered()` trata um karaokê com
+  -- `agora - noshow_at < karaoke_wait_ms` como não elegível. NULL = nunca faltou.
+  noshow_at    INTEGER,
   CHECK (state <> 'playing' OR play_id IS NOT NULL)  -- INV-6
 );
 CREATE INDEX        ix_sug_queue        ON suggestion(state, rank, suggested_at);

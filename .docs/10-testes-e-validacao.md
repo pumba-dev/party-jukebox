@@ -117,6 +117,7 @@ que ainda não montou a venv do Python.
 | Rede | **toda** interceptada (`page.route`, `page.routeWebSocket`) | real |
 | Banco | nenhum | SQLite em diretório temporário |
 | Spotify | não existe | `api/scripts/spotify_de_mesa.py` |
+| YouTube | `testes/apoio/youtube.ts` substitui a IFrame API no browser | idem, **mais** `api/scripts/youtube_de_mesa.py` no servidor |
 | Precisa de | só `node_modules` | venv + `npm run build` antes |
 
 **A isolada é onde mora o valor.** Ela empurra um `StateSnapshot` fabricado e olha o que a tela
@@ -133,14 +134,35 @@ que portanto **não** passam pelo OpenAPI nem pelo type-assert de `contract.ts`.
 
 **A de festa existe por um motivo só:** V6 pede cinco cookies `bq_guest` distintos, e o
 `TestClient` do pytest fala ASGI — nenhum browser o alcança. Cada convidado é um *browser context*.
-O servidor de mesa substitui `bq.spotify.client.SpotifyClient` **antes** de `from bq.app import
-app`, porque `app.py` liga o nome no próprio import.
+O servidor de mesa substitui `bq.spotify.client.SpotifyClient` **e**
+`bq.youtube.client.YouTubeClient` **antes** de `from bq.app import app`, porque `app.py` liga os
+dois nomes no próprio import.
 
 🔴 O banco é temporário e o script **aborta** se a configuração resolver para dentro de `api/`.
 `api/party.db` tem o histórico real das festas passadas, é gitignored, e não existe cópia.
 
 As guardas de voto são zeradas por `PATCH /api/host/settings` — o caminho que a
 [RF-24](01-requisitos-funcionais.md) abre. Dormir 20 s provaria o relógio, não a votação.
+
+### 2.4 A IFrame API do YouTube, substituída no browser
+
+`testes/apoio/youtube.ts` serve, no lugar de `https://www.youtube.com/iframe_api`, um script que
+define `window.YT.Player` e expõe `window.__yt` — os players construídos (com os `playerVars`
+inteiros), os comandos recebidos, e ganchos para o teste **mandar** o vídeo acabar, travar ou ser
+recusado. Vale nas **duas** suítes: `page.route` é do browser, não do servidor.
+
+Sem isso, todo teste da `/tv` em karaokê sairia para a internet — lento, dependente de rede, e
+impossível de dirigir. Com isso dá para prender coisas que nenhum teste de mesa alcança: que
+`iv_load_policy` continua `3`, que o player já existe **durante a chamada** (o buffer que faz o
+vídeo começar em vez de carregar), que `ended` vira relatório e o silêncio **não**, e que a segunda
+`/tv` não constrói player nenhum.
+
+🔴 **A posse do áudio é do servidor e sobrevive ao fim do teste.** Uma `/tv` deixada aberta continua
+batendo o claim a cada 10 s e a do teste seguinte abre **muda** — falhando dez linhas adiante com
+"o player nunca deu play". Duas armadilhas somam para isso: `browser.newPage()` cria um contexto
+que o Playwright **não** fecha, e `page.close()` por padrão **não** roda os handlers de descarga,
+então o `sendBeacon` do `pagehide` não sai. Daí `tvDeMesa()` se auto-registrar e o
+`test.afterEach(fecharTvsAbertas)` em todo arquivo de festa que abre uma `/tv`.
 
 ## 3. Testes de mesa
 

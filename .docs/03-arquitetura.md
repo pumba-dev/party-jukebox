@@ -96,10 +96,14 @@ birthday-queue/
 │   ├── .tokens.json           refresh token do Spotify               (não versionar)
 │   ├── party.db               SQLite                                 (não versionar)
 │   ├── scripts/
-│   │   └── authorize.py       OAuth uma vez, listener em 127.0.0.1:8888
+│   │   ├── authorize.py       OAuth uma vez, listener em 127.0.0.1:8888
+│   │   ├── dump_openapi.py    gera o contrato offline (ADR-006)
+│   │   ├── servidor_de_mesa.py  o bq inteiro para a suíte Playwright de festa
+│   │   ├── spotify_de_mesa.py   e
+│   │   └── youtube_de_mesa.py   os dois duplos do servidor vivo
 │   ├── tests/                 espelha bq/ — ver §3.1
 │   └── bq/
-│       ├── __init__.py        o MAPA das camadas e as sete regras  ← porta de entrada
+│       ├── __init__.py        o MAPA das camadas e as oito regras  ← porta de entrada
 │       ├── __main__.py        uvicorn.run("bq.app:app")
 │       ├── app.py             FastAPI, mounts, lifespan, SPA fallback
 │       ├── models.py          pydantic — os tipos que o OpenAPI expõe
@@ -118,12 +122,16 @@ birthday-queue/
 │       │   ├── client.py      httpx, retry, Retry-After, prioridade
 │       │   ├── device.py      resolução de device por NOME
 │       │   └── search.py      busca + cache LRU
+│       ├── youtube/           ← R3 e R8 · irmã de spotify/, e as duas não se conhecem
+│       │   ├── client.py      httpx, cota, backoff, scrub da chave na query string
+│       │   └── search.py      busca + cache LRU de 6 h (a cota é a restrição real)
 │       ├── domain/            ← R4 · as regras da festa
 │       │   ├── party.py       S (limiares recarregáveis) e o estado de runtime
 │       │   ├── guests.py      apelido + cookie
 │       │   ├── tracks.py      catálogo local
 │       │   ├── play.py        Play, PlayState, DISPATCH_LEAD_MS
-│       │   ├── queue.py       round-rank, cooldown, dedupe
+│       │   ├── queue.py       round-rank, cooldown, dedupe, a ordem ENTRE provedores
+│       │   ├── karaoke.py     o turno no microfone: três fases, memória pura
 │       │   └── guards.py      guardas de skip, funções puras
 │       ├── view/              ← R5 · o que as TELAS recebem
 │       │   ├── snapshot.py    o construtor único do snapshot
@@ -134,20 +142,23 @@ birthday-queue/
 │       │   └── votes.py       a ação de votar
 │       └── routes/            ← R1 · nada importa daqui
 │           ├── deps.py        identidade pelo cookie
+│           ├── karaoke.py     busca, INICIAR, e a telemetria da /tv (sem cookie, ver 05 §3.1)
 │           └── guest.py  host.py  search.py  state.py
 ├── web/
 │   ├── package.json  vite.config.ts  tsconfig.json
 │   └── src/
 │       ├── main.ts  router.ts  api.ts  ws.ts
-│       ├── regras.ts          os 8 limiares do /host: rótulo, ajuda e opções (dado puro)
+│       ├── regras.ts          os 11 limiares do /host: rótulo, ajuda e opções (dado puro)
 │       ├── stores/party.ts
 │       ├── composables/useClock.ts
+│       ├── lib/youtube.ts     o carregador memoizado da IFrame API
 │       ├── types/
 │       │   ├── api.d.ts       GERADO do OpenAPI — não editar
 │       │   └── ws.ts          união discriminada, à mão
 │       ├── views/    GuestView.vue  TvView.vue  HostView.vue  HistoricoView.vue
 │       └── components/  Abas.vue  CampoSelect.vue  Kpi.vue
 │                        primitivos de apresentação, zero estado de negócio (08 §9)
+│                        TvKaraoke.vue — a exceção: dono do ciclo de vida do player (08 §5.1)
 ├── start.ps1
 └── .gitignore
 ```
@@ -379,14 +390,16 @@ flowchart TD
     P --> V["view/"]
     V --> D["domain/"]
     D --> S["spotify/"]
+    D --> Y["youtube/"]
     S --> C["core/"]
+    Y --> C
     R --> M["models.py"]
     V --> M
     D --> RT["runtime.py"]
 ```
 
 ```
-models/runtime  <  core  <  spotify  <  domain  <  view  <  playback  <  routes  <  app
+models/runtime  <  core  <  {spotify, youtube}  <  domain  <  view  <  playback  <  routes  <  app
 ```
 
 - **R1 · nada importa `routes/`.** A regra mais antiga do projeto: rota é folha do grafo, não
@@ -394,10 +407,10 @@ models/runtime  <  core  <  spotify  <  domain  <  view  <  playback  <  routes 
 - **R2 · `core/` não importa nada de `bq` além de `core/`.** É a base, e nada aqui sabe o que é
   uma festa: não há fila, nem convidado, nem faixa. `clock.py` em particular não importa nada, e
   é o que permite injetar um relógio falso ([10 §2](10-testes-e-validacao.md)).
-- **R3 · `spotify/` não conhece o banco.** Fala HTTP e devolve dataclasses. É o que permite
-  substituir o Spotify inteiro por um duplo em teste — a decisão de teste mais valiosa do projeto.
-  Mora logo acima de `core/`, e é isso que faz `domain/tracks.py → spotify/client.py` ser uma
-  aresta descendente e legal em vez de uma exceção envergonhada.
+- **R3 · `spotify/` e `youtube/` não conhecem o banco.** Falam HTTP e devolvem dataclasses. É o
+  que permite substituir os dois provedores inteiros por duplos em teste — a decisão de teste mais
+  valiosa do projeto. Moram logo acima de `core/`, e é isso que faz `domain/tracks.py →
+  spotify/client.py` ser uma aresta descendente e legal em vez de uma exceção envergonhada.
 - **R4 · `domain/` não importa `models.py`, `view/`, `playback/` nem `routes/`.** São as regras da
   festa: round-rank e guardas de voto, os dois lugares com lógica que erra silenciosamente. Não
   importar `models.py` é o ponto fino — o que o OpenAPI expõe é contrato de fronteira, e regra que
@@ -408,6 +421,11 @@ models/runtime  <  core  <  spotify  <  domain  <  view  <  playback  <  routes 
 - **R6 · `playback/` não importa `routes/`.** É o que a caixa de som recebe.
 - **R7 · `models.py` e `runtime.py` não importam nada de `bq` em runtime.** É o critério
   verificável que os autoriza a morar na raiz, e o que impede a raiz de voltar a ser lixeira.
+- **R8 · `spotify/` e `youtube/` não se conhecem.** É a única regra que não é sobre subir de
+  camada, e existe porque as duas estão no **mesmo nível**: a checagem de nível só reprova
+  `destino > origem`, então um empate passa por ela. Sem R8, `youtube/` importaria `spotify/` sem
+  nada reclamar e a ordem total deixaria de ser total **em silêncio** — que é o modo de falha que
+  esta seção inteira existe para impedir. Os dois provedores externos são irmãos, não uma pilha.
 
 O único escape é `if TYPE_CHECKING:` — o bloco não roda. Sobra exatamente **um** no projeto,
 `runtime.py`, onde a inversão é a arquitetura e não um remendo.

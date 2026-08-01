@@ -145,6 +145,29 @@ Quatro decisões de tela que vêm direto dos requisitos:
 - **O botão de pular mostra o motivo antes de ser tocado.** `skip.blockedReason` desabilita o botão com
   a explicação ([06 §3](06-realtime-websocket.md)) — em vez de a pessoa tocar e receber um `409`.
 
+### A aba de karaokê, e o INICIAR
+
+O alternador `Ouvir | 🎤 Cantar` **só existe** quando `settings.karaokeEnabled` — que compõe duas
+coisas no servidor: o host ligou **e** há chave do YouTube. Nem existe e responde 422 no toque:
+não existe.
+
+**Duas abas e não uma lista misturada**, e o motivo é de acervo: "evidências" no Spotify devolve a
+gravação do Chitãozinho; no YouTube de karaokê devolve o playback com a letra. Numa lista só, quem
+quer cantar toca no item errado e só descobre com o próprio nome já no telão.
+
+O **INICIAR** fica num painel próprio **acima de tudo**, e não dentro de "Minhas". É a ação mais
+urgente que este app tem: a sala está em silêncio, o nome da pessoa está num monitor de 40
+polegadas, e ela tem 45 segundos. Abaixo da dobra, ela rola procurando enquanto a vez escorre.
+
+🔴 **Ele aparece por `guestId`, nunca por apelido.** Dois "Ana" numa festa de trinta é comum — e
+com a comparação errada o botão aparece para as duas, e a que tocar primeiro rouba a vez da outra.
+Sem erro nenhum na tela.
+
+Durante um turno o card "Tocando agora" tem um **ramo próprio**: não existe `Track` nenhuma, e sem
+ele a tela diria "Nada tocando. Sugira uma música e ela começa na hora" com alguém cantando na
+sala. Quem não é o dono da vez também vê ("Chamando no microfone · Fulano"), e é assim que entende
+o silêncio.
+
 ### Retirar o voto
 
 O botão é toggle na aparência e **dois endpoints** por baixo
@@ -187,8 +210,52 @@ backend permitindo a retirada.
 - Estado `idle` → componente separado em tela cheia ([RF-36](01-requisitos-funcionais.md)), QR gigante.
   É um ramo obrigatório da união, não um `v-if` no fim do arquivo.
 
-Fullscreen no Chromium: `--kiosk http://127.0.0.1/tv`. Sem cursor, sem barra, sem risco de alguém
-navegar. Detalhe no [runbook](11-runbook-da-festa.md).
+Fullscreen no Chrome: `.\start.ps1 -Tv`. Sem cursor, sem barra, sem risco de alguém navegar — e com
+os dois flags que o karaokê exige. Detalhe no [runbook §1.1](11-runbook-da-festa.md).
+
+### 5.1 `TvKaraoke` — os três ecrãs, UM componente, UM player
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ┌────────────────────────────────────┐  KARAOKÊ                     │
+│  │                                    │  Ana                   36 px │
+│  │       é a vez de                   │  Evidências — Karaokê…       │
+│  │           ANA               96 px  │  Karaokê Brasil              │
+│  │   toque INICIAR no celular         │  ─────────────────────       │
+│  │            0:38             84 px  │  A SEGUIR                    │
+│  │                                    │   🎤 Garota de Ipanema       │
+│  └────────────────────────────────────┘   Bia                        │
+│   ↑ a chamada é uma CAMADA sobre o vídeo  ┌────┐ ┌────┐              │
+│     — o iframe já está montado e          │ QR │ │ QR │  RF-35       │
+│     bufferizando por baixo dela           └────┘ └────┘              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+🔴 **O componente não é remontado entre as fases, e é a decisão que faz a feature funcionar.** O
+iframe nasce na chamada e bufferiza enquanto a sala olha para o nome da pessoa; quando ela toca em
+INICIAR, o vídeo **começa** em vez de começar a carregar. Chavear as fases por `v-if` dentro de um
+`<Transition>` destruiria o player a cada troca e devolveria 2–4 s de tela preta com trinta pessoas
+em silêncio. Por isso a `<Transition>` da `TvView` envolve o componente **inteiro**, com chave fixa
+`"karaoke"` — e nunca o `playId`, que é `null` na chamada e no fecho.
+
+- **Layout pillarbox**, coluna de `w-80` à direita. **Nada nosso encosta no terço inferior do
+  vídeo**, que é onde a letra fica — uma faixa por baixo teria custado a legenda.
+- **`pointer-events: none` no wrapper do iframe**, e ele herda para dentro do frame. É a medida que
+  torna [RF-38](01-requisitos-funcionais.md) *verdadeiro* e não *provável*: um iframe é um
+  documento com superfície clicável própria, e `controls=0` não a elimina — um clique no meio do
+  vídeo pausa. As outras duas (`disablekb`, a `/tv` não ter mouse) não bastam sozinhas.
+- **`iv_load_policy: 3`** é o parâmetro que mais protege a feature: anotações e cards do YouTube
+  aparecem **sobre a letra**.
+- **Autoplay barrado tem tela própria e a saída é uma TECLA**, não um botão: a regra é sobre o que
+  a tela exibe e sobre o que um convidado alcança pelo celular, e um listener de `keydown` só é
+  acionável pelo teclado do notebook que roda o quiosque. Detecção em duas vias
+  (`onAutoplayBlocked`, que não existe em todo navegador, e um vigia de 1,5 s).
+- **Só a `/tv` dona monta o player.** Uma segunda tela mostra tudo e fica muda
+  ([RF-51](01-requisitos-funcionais.md)); a posse é arbitrada pelo servidor
+  ([05 §3.1](05-api-http.md)).
+- 🔴 **A posse chega DEPOIS do `onMounted`** — o claim é um POST. O componente observa a prop com
+  `flush: 'post'`; sem isso, um F5 no meio de uma música deixa a tela preta até o teto vencer, que
+  é exatamente o caso que o F5 deveria socorrer.
 
 ## 6. Barra de progresso
 

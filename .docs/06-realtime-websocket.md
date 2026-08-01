@@ -53,11 +53,33 @@ export type PlayerState =
       protectedUntilMs: number | null }
   | { type: 'paused'; playId: PlayId; track: Track; positionMs: number }
 
-export type QueueItem = {
-  suggestionId: number; track: Track
-  suggestedBy: string; isYours: boolean
-  wasInterrupted: boolean        // voltou por force-play (RF-26) — o /tv marca
+  // M3 · o turno no microfone. Três fases, três variantes — ver abaixo.
+  | { type: 'karaoke_waiting'; playId: PlayId | null; suggestionId: number
+      video: KaraokeVideo; singer: string
+      singerGuestId: GuestId        // 🔴 nunca comparação por apelido
+      waitingUntilMs: number }      // parede e absoluto: o cliente conta sozinho
+  | { type: 'karaoke_playing'; playId: PlayId; video: KaraokeVideo
+      singer: string; singerGuestId: GuestId
+      positionMs: number; anchorEpochMs: number }   // MESMO significado de `playing`
+  | { type: 'karaoke_cheering'; video: KaraokeVideo; singer: string
+      outcome: 'ok' | 'no_show' | 'error' | 'skipped'
+      untilMs: number }
+
+/** NÃO é uma `Track`, e o tipo separado é a defesa. Sem campo de LETRA, e não vai ter: ela vem
+ *  QUEIMADA na imagem do vídeo (ADR-011). */
+export type KaraokeVideo = {
+  videoId: YoutubeVideoId; title: string; channel: string
+  thumbUrl: string | null; durationMs: number
 }
+
+/** UMA lista, já na ordem em que vai TOCAR — os karaokês vêm intercalados pelo servidor. */
+export type QueueItem =
+  | { kind: 'track'; suggestionId: number; suggestedBy: string; isYours: boolean
+      blockedByMode: boolean       // está na fila e não toca agora: a tela ESMAECE
+      track: Track
+      wasInterrupted: boolean }    // voltou por force-play (RF-26) — o /tv marca
+  | { kind: 'karaoke'; suggestionId: number; suggestedBy: string; isYours: boolean
+      blockedByMode: boolean; video: KaraokeVideo }
 
 export type SkipState = {
   votes: number; needed: number
@@ -74,6 +96,8 @@ export type Me = {
 export type Settings = {
   skipVotesNeeded: number; suggestCooldownMs: number
   maxDurationMs: number; repeatWindowMs: number
+  karaokeEnabled: boolean        // o host ligou E há chave do YouTube — as duas coisas
+  karaokeEveryN: number; karaokeOnly: boolean
 }
 
 export type ServerMsg =
@@ -91,6 +115,19 @@ estado que quebra é justamente `idle` — que por [ADR-005](adr/ADR-005-fila-va
 **de propósito** às 22h30, na frente de todos. Com a união, o compilador recusa acessar `track` antes
 de estreitar por `type`, e a tela de fila vazia deixa de ser um caso esquecido para ser um ramo
 obrigatório.
+
+**As três variantes de karaokê são união, e não um campo irmão `karaoke: … | null`.** Enquanto
+alguém canta, nada toca no Spotify: é exclusão mútua, que é a definição da união. Com o campo
+irmão, cada uma das três telas teria de codificar à mão "se `karaoke` não é null, ignore
+`player`", e a primeira que esquecesse mostraria a capa da música anterior enquanto a pessoa
+canta. De graça, **o voto de skip some estruturalmente**: o bloco inteiro do botão exige
+`type === 'playing'`, impossível durante um turno — e `SkipState` não precisou de nenhuma flag
+nova. Cinco pessoas calarem quem está cantando na frente de trinta é um objeto social diferente de
+pular uma música ([RF-49](01-requisitos-funcionais.md)).
+
+`karaoke_playing` carrega `positionMs`/`anchorEpochMs` com o **mesmo** significado de `playing`, de
+propósito: é o que faz o `useProjected` do §5 servir as duas e o celular ter barra de progresso sem
+saber que existe um iframe.
 
 **`blockedReason` em `SkipState` existe para o botão explicar-se sozinho.** Sem ele, o convidado toca
 "pular", espera, e recebe um `409` — três interações para descobrir que faltam 8 segundos. Com ele, o

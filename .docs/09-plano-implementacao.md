@@ -140,6 +140,33 @@ aceitável por um comportamento elegante, num app de uma noite.
 
 ---
 
+## M3 — Karaokê · ≈ 18 h
+
+Nasce **desligada** por seed (`karaoke_every_n = 0`) e acende no `/host` em M3.5. Dá para parar
+depois de M3.3 e já ter algo usável. Nenhuma fatia quebra uma festa em andamento.
+
+| # | Tarefa | h | RF/RNF |
+|---|---|---|---|
+| **M3.0** | `track.provider`, `suggestion.noshows/noshow_at`, `queue.ordered()`, os 3 limiares | 3,0 | [RF-43](01-requisitos-funcionais.md), [RF-44](01-requisitos-funcionais.md) |
+| **M3.1** | `bq/youtube/`: cliente, cache de 6 h, cota, `scrub()` da chave, rota de busca | 2,5 | [RF-43](01-requisitos-funcionais.md) |
+| **M3.2** | Sugerir karaokê pela rota que já existe, com a guarda **antes** do cooldown | 1,0 | [RF-09](01-requisitos-funcionais.md) |
+| **M3.3** | O turno no maestro: chamada, espera, canto, fim, no-show, guardas de strike | 5,0 | [RF-46](01-requisitos-funcionais.md), [RF-48](01-requisitos-funcionais.md), [RF-50](01-requisitos-funcionais.md) |
+| **M3.4** | A `/tv`: os três ecrãs, o iframe, a telemetria, a posse do áudio, `start.ps1 -Tv` | 3,5 | [RF-46](01-requisitos-funcionais.md), [RF-51](01-requisitos-funcionais.md) |
+| **M3.5** | Aba do convidado, o INICIAR, e os controles do `/host` | 2,5 | [RF-43](01-requisitos-funcionais.md), [RF-47](01-requisitos-funcionais.md) |
+| **M3.6** | Duplos de mesa do YouTube, suítes Playwright, `.docs/`, ADR-011, runbook | 1,5 | [10 §2.4](10-testes-e-validacao.md) |
+
+**M3.3 é a fatia grande e é onde estão os bugs caros.** Quatro caminhos distintos levavam a festa
+ao MODO PASSIVO por acidente durante um karaokê — o Spotify está calado de propósito, e cada tick
+somava um strike. Todos os quatro têm guarda e teste; sem eles, três karaokês numa noite param a
+fila com o `/tv` acusando "alguém está controlando o Spotify por fora".
+
+**O risco nº 1 da milestone é de frontend, não de backend:** o Chrome barra autoplay sem gesto do
+usuário. Mitigado por perfil dedicado + flag (`start.ps1 -Tv`), resgate por barra de espaço, e um
+teto no servidor — a festa não morre por causa de uma política de autoplay. Ver
+[11 §1.1](11-runbook-da-festa.md).
+
+---
+
 ## Rastreabilidade inversa
 
 Todo requisito funcional tem pelo menos uma tarefa. Verificado item a item.

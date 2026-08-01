@@ -19,7 +19,7 @@ Em ordem. Cada passo tem uma verificação, porque um passo que "parece ter dado
 | 4 | Abrir o **app desktop do Spotify** e logar na conta Premium | tocar 10 s de qualquer música manualmente e pausar. Isso ativa o device e evita a escalada do primeiro despacho ([07 §3](07-integracao-spotify.md)) |
 | 5 | `.\start.ps1` | a URL e o IP aparecem grandes no console |
 | 6 | Abrir `/host` no notebook e digitar o PIN | painel de saúde: **device resolvido**, maestro vivo, sem erros ([05 §5](05-api-http.md)) |
-| 7 | Monitor: Chromium em `--kiosk http://127.0.0.1/tv` | tela cheia, sem cursor, sem barra |
+| 7 | Monitor: `.\start.ps1 -Tv` abre a `/tv` em quiosque | tela cheia, sem cursor, sem barra. Se abrir à mão, **use a linha que o script imprime** — ver §1.1 |
 | 8 | **Do seu celular**, pela Wi-Fi: abrir a URL, apelido, sugerir uma música | **o som sai na JBL.** Este é o único teste que importa |
 | 9 | Deixar 2 ou 3 músicas na fila | a festa não começa com o `/tv` na tela de fila vazia |
 | 10 | Colar o QR code impresso onde as pessoas passam | perto da comida e da bebida, não na porta |
@@ -30,6 +30,38 @@ a caixa funciona. Se falha, a §3 diz onde procurar.
 **O passo 9 é psicologia, não técnica.** A primeira pessoa que olhar o monitor precisa ver uma festa em
 andamento, com fila e capa de álbum. Uma tela dizendo "ninguém sugeriu nada" às 20h05 sinaliza que o
 app não está funcionando, não que é a vez dela.
+
+### 1.1 Karaokê — o que fazer na VÉSPERA, não no dia
+
+Pule tudo isto se não vai ter karaokê. Se vai, **os dois primeiros passos precisam acontecer com
+antecedência**: o primeiro exige um login, e o segundo pode exigir esperar até o dia seguinte. O
+passo a passo com telas do Google Cloud e o porquê de cada escolha está em
+[12 §1](12-integracao-youtube.md) e [12 §10](12-integracao-youtube.md).
+
+| # | Fazer | Por quê |
+|---|---|---|
+| 1 | `.\start.ps1 -Tv` uma vez em casa. Na primeira execução o Chrome abre **sem** quiosque: **entre na conta com YouTube Premium** e feche | O perfil dedicado (`.chrome-tv\`) guarda a sessão. Sem Premium, o anúncio de pré-roll toca na frente de quem ia cantar, e não há como pular |
+| 2 | `YOUTUBE_API_KEY` no `api\.env` | Sem ela a aba de karaokê nem aparece para os convidados. A chave é do Google Cloud e a criação pode levar horas |
+| 3 | `/host` → Regras → **Karaokê na fila** = "a cada 3 músicas" | Nasce **desligada**. Muito baixo e a festa vira open mic: quem só quer ouvir música nunca é atendido |
+| 4 | Do celular: aba **🎤 Cantar**, escolher, esperar ser chamado, **INICIAR** | O teste de aceitação do karaokê. Se o som sair na caixa, está tudo de pé |
+
+🔴 **O `--user-data-dir` é a parte que ninguém acredita ser necessária.** Se o Chrome já estiver
+aberto no perfil normal, `chrome <url>` entrega o endereço ao processo existente e **descarta todos
+os flags** — inclusive o do autoplay. Não há erro; o som simplesmente não sai. O `start.ps1 -Tv`
+usa perfil próprio justamente por isso, e imprime a linha de comando completa **sempre**, com ou
+sem o switch, para o caminho manual ser um copiar-e-colar.
+
+**Durante a festa, no `/host` → Saúde**, o bloco Karaokê responde a pergunta que a tela preta não
+responde:
+
+| `a /tv está aberta` | `reportando o vídeo` | Significa |
+|---|---|---|
+| não | — | o quiosque caiu ou ninguém abriu a `/tv` |
+| sim | não (com alguém cantando) | o **autoplay foi bloqueado** → aperte a **barra de espaço** na máquina da TV |
+| sim | sim | está tocando; o problema é outro |
+
+A cota do YouTube também aparece ali: são ~99 buscas por dia para a festa inteira. Estourou, a
+busca de karaokê morre até a virada do dia no Pacífico — e só ela; a fila normal não é afetada.
 
 ### QR code
 
@@ -143,6 +175,32 @@ em tela cheia chamando as pessoas para sugerir.
 **Se isso acontecer três vezes na noite**, a decisão de silêncio estava errada para esta festa. Anote
 para a próxima — uma playlist de fallback é ~1 h de trabalho.
 
+### 3.10 🎤 O nome está no telão e não sai som
+
+Três causas, e o `/host` → **Saúde** → Karaokê separa as três em dois segundos. Comece por lá.
+
+**A `/tv` está aberta e o vídeo não anda** → o Chrome bloqueou o autoplay.
+→ **Aperte a barra de espaço na máquina da TV.** A própria tela diz isso, em letra grande.
+→ Se resolver toda vez, o quiosque subiu sem os flags: `Ctrl+C` e `.\start.ps1 -Tv` (§1.1).
+→ Se ninguém apertar, a festa **não para**: a vez encerra sozinha e a próxima música entra.
+
+**Nenhuma `/tv` está aberta** → o quiosque caiu, ou alguém fechou.
+→ Reabra com `.\start.ps1 -Tv`, ou a linha que o console imprimiu.
+→ A vez atual provavelmente já vai ter voltado para a fila; ela é chamada de novo mais tarde.
+
+**A pessoa sumiu** (foi ao banheiro, o celular descarregou, desistiu).
+→ `/host` → Fila → **Começar por ela** se ela está de pé na sua frente com o microfone.
+→ **Passar a vez** se não. Não conta falta e o karaokê volta para o fim da fila.
+→ Sem tocar em nada, o prazo vence sozinho e a fila anda.
+
+**O vídeo aparece e diz que não pode tocar** → o dono desligou a incorporação depois, ou é bloqueio
+regional. Acontece em canal de karaokê apesar do filtro na busca. A `/tv` explica na tela, o
+servidor encerra a vez e a fila continua. Peça outro vídeo para a pessoa.
+
+🔴 **Duas `/tv` abertas: a segunda é MUDA de propósito** ([RF-51](01-requisitos-funcionais.md)).
+Se a tela grande ficou sem som logo depois de alguém abrir a `/tv` no celular, feche a do celular —
+em 25 s a posse volta sozinha, ou na hora se a aba for fechada de verdade.
+
 ---
 
 ## 4. Depois da festa
@@ -167,7 +225,7 @@ tocou na hora do bolo, qual foi a última música da noite.
 ```
 URL da festa .............. http://192.168.0.10        (confirmar com ipconfig)
 /host ..................... http://127.0.0.1/host      PIN: ____
-/tv ....................... http://127.0.0.1/tv        Chromium --kiosk
+/tv ....................... http://127.0.0.1/tv        .\start.ps1 -Tv
 
 TUDO PAROU ................ /host → re-resolver device
 SÓ ISSO NÃO RESOLVEU ...... Ctrl+C  →  .\start.ps1     (não perde a fila)
@@ -175,6 +233,11 @@ PULANDO DEMAIS ............ /host → slider de votos → 6 ou 7
 SILÊNCIO E FILA VAZIA ..... /host → Tocar agora
 PROTEGER A DO BOLO ........ /host → Tocar agora  (90 s imune a voto)
 NINGUÉM CONECTA ........... VPN desligada? IP mudou? rede certa no celular?
+
+KARAOKÊ MUDO .............. barra de espaço NA MÁQUINA DA TV
+NOME NO TELÃO E NINGUÉM ... /host → Fila → "Começar por ela" ou "Passar a vez"
+SÓ KARAOKÊ, SEM FILA ...... é de propósito: a TV explica. /host → Regras desliga
+2ª /tv NÃO FAZ SOM ........ é de propósito: só uma tela toca (RF-51)
 
 REGRA DE OURO ............. está tocando? não mexa.
 ```

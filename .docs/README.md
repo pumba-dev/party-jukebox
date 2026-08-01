@@ -23,17 +23,18 @@ toda tarefa lá aponta para a seção que a especifica.
 |---|---|---|
 | — | [README.md](README.md) | Índice, glossário, convenções |
 | 00 | [Visão e escopo](00-visao-e-escopo.md) | Para quem é, o que **não** é, critérios de sucesso da noite |
-| 01 | [Requisitos funcionais](01-requisitos-funcionais.md) | `RF-01`…`RF-31` — comportamento observável |
+| 01 | [Requisitos funcionais](01-requisitos-funcionais.md) | `RF-01`…`RF-51` — comportamento observável |
 | 02 | [Requisitos não funcionais](02-requisitos-nao-funcionais.md) | `RNF-01`…`RNF-14` — latência, robustez, disciplina de relógio |
 | 03 | [Arquitetura](03-arquitetura.md) | Componentes, fronteiras, o loop de playback, stack |
 | 04 | [Modelo de dados](04-modelo-de-dados.md) | DDL completo, ER, invariantes `INV-1`…`INV-7` |
 | 05 | [API HTTP](05-api-http.md) | Contrato de cada endpoint, códigos de erro |
 | 06 | [Realtime / WebSocket](06-realtime-websocket.md) | Protocolo de estado, união discriminada, reconexão |
 | 07 | [Integração Spotify](07-integracao-spotify.md) | OAuth, resolução de device, despacho, rate limit |
-| 08 | [Frontend](08-frontend.md) | Vue 3 + TS, as 3 rotas, stores, tipos gerados |
-| 09 | [Plano de implementação](09-plano-implementacao.md) | M0/M1/M2, tarefas com DoD e esforço |
+| 08 | [Frontend](08-frontend.md) | Vue 3 + TS, as 4 rotas, stores, tipos gerados |
+| 09 | [Plano de implementação](09-plano-implementacao.md) | M0/M1/M2/M3, tarefas com DoD e esforço |
 | 10 | [Testes e validação](10-testes-e-validacao.md) | Spotify falso, testes de mesa, checklist manual |
 | 11 | [Runbook da festa](11-runbook-da-festa.md) | Ordem de boot, o que fazer quando quebrar |
+| 12 | [Integração YouTube](12-integracao-youtube.md) | Chave, cota, cache, o iframe da `/tv`, catálogo de erros |
 
 ### Decisões arquiteturais (ADR)
 
@@ -48,7 +49,8 @@ toda tarefa lá aponta para a seção que a especifica.
 | [007](adr/ADR-007-escopo-de-seguranca-reduzido.md) | Onde a segurança para e por quê |
 | [008](adr/ADR-008-force-play-simples-vs-park-resume.md) | Force-play simples em M1; park/resume adiado |
 | [009](adr/ADR-009-acoes-por-http-nao-websocket.md) | Ações do cliente por HTTP; WS é só broadcast de estado |
-| [010](adr/ADR-010-camadas-do-backend.md) | O backend em seis camadas, com as regras de dependência testadas |
+| [010](adr/ADR-010-camadas-do-backend.md) | O backend em camadas, com as regras de dependência testadas |
+| [011](adr/ADR-011-karaoke-na-tv.md) | Karaokê por vídeo do YouTube na `/tv`; o servidor continua dono do relógio |
 
 ### Histórico
 
@@ -76,10 +78,10 @@ Estes termos têm significado técnico exato no resto dos documentos. Onde parec
 | **proteção** | Janela de 90 s após um force-play em que a faixa não pode ser pulada por voto. Tem contagem visível no `/tv`. |
 | **host** | Quem está com o `/host` aberto. Uma pessoa, autenticada por PIN de 4 dígitos. |
 
-### Os quatro tipos de string que não podem se misturar
+### Os tipos de string que não podem se misturar
 
-Existem quatro identificadores textuais no sistema e trocar um pelo outro é um bug silencioso.
-Por isso o frontend usa *branded types* ([08 §5](08-frontend.md)) e o backend usa `NewType`:
+Trocar um destes identificadores pelo outro é um bug silencioso. Por isso o frontend usa
+*branded types* ([08 §5](08-frontend.md)) e o backend usa `NewType`:
 
 | Tipo | Exemplo | Origem |
 |---|---|---|
@@ -87,6 +89,8 @@ Por isso o frontend usa *branded types* ([08 §5](08-frontend.md)) e o backend u
 | `TrackUri` | `spotify:track:4iV5W9uYEdYUVa79Axb7Rh` | Spotify. É o que a API de play aceita — **não** o `TrackId` |
 | `DeviceId` | `5fbb3ba6aa454b5534c4ba43a8c7e8e10a…` | Spotify, 40 chars hex, **não persistente** ([07 §3](07-integracao-spotify.md)) |
 | `PlayId` | `p_00041` | Nosso, sequencial por boot |
+| `YoutubeVideoId` | `dQw4w9WgXcQ` | YouTube, 11 chars. É o que viaja na fronteira JSON |
+| *id de karaokê* | `yt:dQw4w9WgXcQ` | Nosso. Ocupa a coluna `track.id`, e o `:` fora do base62 é o que **impede** colisão com um `TrackId` ([12 §6](12-integracao-youtube.md)) |
 
 ---
 
