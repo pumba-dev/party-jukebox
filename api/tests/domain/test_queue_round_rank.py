@@ -10,7 +10,7 @@ from __future__ import annotations
 from bq.core import db
 from bq.domain import guests, queue
 
-from .conftest import make_track
+from ..apoio.faixas import make_track
 
 # contador global de faixas: cada sugestão precisa de uma faixa distinta, senão o
 # `ux_sug_active_track` recusa — e o teste falharia por um motivo que não é o testado

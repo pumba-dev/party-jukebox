@@ -2,25 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi.testclient import TestClient
 
 from bq.core import db
-from bq.core.config import settings
 
-from .test_api import client, seed_track  # noqa: F401  (fixture reusada)
-
-
-def entrar(c: TestClient, nick: str) -> None:
-    c.cookies.clear()
-    c.post("/api/session", json={"nickname": nick})
-
-
-def virar_host(c: TestClient, pin: str | None = None) -> Any:
-    # o PIN vem da configuração, não de um literal: assim o teste não mente se o default mudar
-    return c.post("/api/host/session", json={"pin": pin or settings.host_pin})
-
+from ..apoio.faixas import seed_track
+from ..apoio.rotas import entrar, virar_host
 
 # --- WebSocket -------------------------------------------------------------------------------
 

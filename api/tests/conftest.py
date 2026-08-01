@@ -1,13 +1,24 @@
-"""Fixtures. As duas peças que tornam tudo testável (.docs/10-testes-e-validacao.md §2)."""
+"""As fixtures da suíte, num lugar só.
+
+Conftest de RAIZ, e é o que importa: fixture daqui é herdada por toda subpasta. Antes a `client`
+morava dentro de `test_api.py` e dois arquivos a importavam com `# noqa: F401` — o que, além de
+feio, obrigava a lembrar em qual teste cada helper nasceu.
+
+Divisão de trabalho com `tests/apoio/`: aqui as FIXTURES (injeção pelo pytest), lá as FUNÇÕES
+(import por nome). `simulate(cond, clk, ms)` recebe o relógio explicitamente e não teria nada a
+ganhar sendo mágica.
+"""
 
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 # Antes de qualquer import de bq: config.py valida no import e aborta se faltar chave.
 #
@@ -22,23 +33,23 @@ os.environ["LAN_IP"] = "192.168.0.10"  # não depende de adaptador de rede no te
 # o log do teste não vai para api\party.log, senão o histórico da festa nasce sujo
 os.environ["LOG_PATH"] = str(Path(tempfile.gettempdir()) / "bq-test.log")
 
+# 🔴 A ordem acima é frágil e a subdivisão da suíte em pacotes criou uma forma nova de quebrá-la:
+# um `__init__.py` de subpasta é importado ANTES deste arquivo. Se ele importasse `bq`, o
+# `config.py` validaria contra o ambiente REAL, e a falha apareceria como `SystemExit(2)` de
+# configuração inválida — ou, pior, como teste do /host quebrando com BAD_PIN, sem relação
+# aparente com a causa. Há um teste em arquitetura/ para a regra; esta asserção é o diagnóstico.
+assert "bq.core.config" not in sys.modules, (
+    "bq foi importado ANTES deste conftest: as variáveis de ambiente de teste não valeram. "
+    "Causa provável: algum __init__.py de tests/ importa bq."
+)
+
 from bq import runtime  # noqa: E402
 from bq.core import db  # noqa: E402
-from bq.domain import guests, tracks  # noqa: E402
+from bq.core.config import settings  # noqa: E402
+from bq.domain import guests  # noqa: E402
 from bq.domain.party import S, party  # noqa: E402
-from bq.spotify.client import TrackData  # noqa: E402
 
-
-class FakeClock:
-    """Relógio de mesa. `mono` é arbitrário — monotônico não tem significado absoluto."""
-
-    def __init__(self, t0: int = 1_700_000_000_000) -> None:
-        self.mono = 5_000_000
-        self.wall = t0
-
-    def advance(self, ms: int) -> None:
-        self.mono += ms
-        self.wall += ms
+from .apoio.relogio import FakeClock  # noqa: E402
 
 
 @pytest.fixture
@@ -85,17 +96,25 @@ def guest(base: None) -> guests.Guest:
     return guests.create("Ana")
 
 
-def make_track(n: int, duration_ms: int = 5_000) -> TrackData:
-    tid = f"{n:022d}"
-    t = TrackData(
-        track_id=tid,
-        uri=f"spotify:track:{tid}",
-        name=f"Faixa {n}",
-        artists="Artista",
-        album="Álbum",
-        art_url=None,
-        duration_ms=duration_ms,
-        explicit=False,
-    )
-    tracks.upsert(t)
-    return t
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """O app de verdade, pela porta HTTP. Não usa a fixture `base`: o lifespan do FastAPI abre e
+    fecha o banco por conta própria."""
+
+    async def sem_maestro(self: object) -> None:  # o maestro tem teste próprio
+        return None
+
+    monkeypatch.setattr("bq.playback.conductor.Conductor.run_forever", sem_maestro)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "api.db")
+    monkeypatch.setattr(settings, "tokens_path", tmp_path / ".tokens.json")
+    db.close()
+    # 🔴 Import TARDIO, de propósito: `bq.app` monta o app no import, e o `settings.db_path`
+    # acima precisa já estar patcheado quando isso acontece. Subir esta linha para o topo do
+    # arquivo faz a suíte escrever no `api/party.db` de verdade.
+    from bq.app import app
+
+    with TestClient(app) as c:
+        yield c
+        # dentro do `with`: ao sair, o lifespan fecha a conexão do banco
+        broken = {k: v for k, v in db.check_invariants().items() if v}
+        assert not broken, f"invariante violado: {broken}"

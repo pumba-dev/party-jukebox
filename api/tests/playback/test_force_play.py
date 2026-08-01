@@ -11,8 +11,9 @@ from bq.domain.party import S
 from bq.domain.play import PlayState
 from bq.playback import votes
 
-from .conftest import FakeClock, make_track
-from .test_conductor import build, enqueue, simulate
+from ..apoio.faixas import make_track
+from ..apoio.maestro import build, enqueue, simulate
+from ..apoio.relogio import FakeClock
 
 
 def row(n: int, duration_ms: int = 200_000) -> tracks.TrackRow:

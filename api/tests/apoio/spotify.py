@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from bq.spotify.client import Device, Playback, Poll, SpotifyError
 
-from .conftest import FakeClock
+from .relogio import FakeClock
 
 
 @dataclass

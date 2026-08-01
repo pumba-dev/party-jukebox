@@ -19,9 +19,9 @@ from bq.playback import votes
 from bq.playback.conductor import POLL_INTERVAL_MS, Conductor
 from bq.view import ws
 
-from .conftest import FakeClock, make_track
-from .fake_spotify import FakeSpotify
-from .test_conductor import build, enqueue, simulate
+from ..apoio.maestro import build, enqueue, simulate
+from ..apoio.relogio import FakeClock
+from ..apoio.spotify import FakeSpotify
 
 
 async def tocando(clk: FakeClock, duracao: int = 200_000) -> tuple[Conductor, FakeSpotify, list[guests.Guest]]:

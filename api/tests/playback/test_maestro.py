@@ -3,45 +3,12 @@ caixa de som ligada (.docs/10-testes-e-validacao.md §1)."""
 
 from __future__ import annotations
 
-from typing import Any, cast
-
-from bq import runtime
 from bq.core import db
 from bq.domain import guests, queue
 from bq.domain.play import DISPATCH_LEAD_MS, PlayState
-from bq.playback.conductor import Conductor
-from bq.spotify.client import TrackData
-from bq.spotify.device import DeviceResolver
 
-from .conftest import FakeClock, make_track
-from .fake_spotify import FakeSpotify
-
-STEP_MS = 100
-
-
-def build(clk: FakeClock, **kw: Any) -> tuple[Conductor, FakeSpotify]:
-    fake = FakeSpotify(clk, **kw)
-    resolver = DeviceResolver(cast(Any, fake), fake.device_name)
-    cond = Conductor(cast(Any, fake), resolver)
-    # `votes.py` e `snapshot.py` alcançam o maestro por `bq.runtime`, como as rotas fazem.
-    runtime.conductor = cond
-    runtime.spotify = cast(Any, fake)
-    runtime.device = resolver
-    return cond, fake
-
-
-async def simulate(cond: Conductor, clk: FakeClock, ms: int, step: int = STEP_MS) -> None:
-    """Roda o laço do maestro sem `asyncio.sleep`: uma festa inteira em milissegundos."""
-    for _ in range(ms // step):
-        clk.advance(step)
-        await cond._step()  # noqa: SLF001 — é o que está sob teste
-
-
-def enqueue(fake: FakeSpotify, guest_id: int, n: int, duration_ms: int, when: int) -> TrackData:
-    t = make_track(n, duration_ms)
-    fake.durations[t.uri] = duration_ms
-    queue.insert(guest_id, t.track_id, when)
-    return t
+from ..apoio.maestro import build, enqueue, simulate
+from ..apoio.relogio import FakeClock
 
 
 async def test_tres_faixas_em_sequencia(clk: FakeClock, guest: guests.Guest) -> None:

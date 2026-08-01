@@ -3,42 +3,11 @@ silêncio: a flag do cookie, a reentrada de sessão e o shape do snapshot."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from pathlib import Path
-
-import pytest
 from fastapi.testclient import TestClient
 
 from bq.core import db
-from bq.core.config import settings
 
-
-@pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    async def sem_maestro(self: object) -> None:  # o maestro tem teste próprio
-        return None
-
-    monkeypatch.setattr("bq.playback.conductor.Conductor.run_forever", sem_maestro)
-    monkeypatch.setattr(settings, "db_path", tmp_path / "api.db")
-    monkeypatch.setattr(settings, "tokens_path", tmp_path / ".tokens.json")
-    db.close()
-    from bq.app import app
-
-    with TestClient(app) as c:
-        yield c
-        # dentro do `with`: ao sair, o lifespan fecha a conexão do banco
-        broken = {k: v for k, v in db.check_invariants().items() if v}
-        assert not broken, f"invariante violado: {broken}"
-
-
-def seed_track(n: int = 1, duration_ms: int = 200_000) -> str:
-    tid = f"{n:022d}"
-    db.run(
-        "INSERT OR IGNORE INTO track (id,uri,name,artists,album,art_url,duration_ms,explicit)"
-        " VALUES (?,?,?,?,?,?,?,0)",
-        (tid, f"spotify:track:{tid}", f"Faixa {n}", "Artista", "Álbum", None, duration_ms),
-    )
-    return tid
+from ..apoio.faixas import seed_track
 
 
 def test_health(client: TestClient) -> None:

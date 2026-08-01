@@ -18,7 +18,8 @@ from bq.domain import guards, play, tracks
 from bq.domain.play import Play
 from bq.playback import conductor
 
-from ..conftest import FakeClock, make_track
+from ..apoio.faixas import make_track
+from ..apoio.relogio import FakeClock
 from .varredura import expostos, modulos, nos
 
 RELOGIO = "bq.core.clock"  # o dono dos nomes; muda de caminho junto com o módulo
