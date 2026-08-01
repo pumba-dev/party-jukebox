@@ -5,7 +5,11 @@
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
-    "baseUrl": ".",
+    // Sem `baseUrl`: ele está deprecado e para de funcionar no TypeScript 7. Não é preciso —
+    // desde o TS 5 um `paths` com valores prefixados por `./` resolve relativo a ESTE arquivo. A
+    // alternativa que o próprio compilador sugere (`"ignoreDeprecations": "6.0"`) só adia o
+    // problema. Quem resolve o `@` no bundle é o `vite.config.ts`, que tem o alias dele e não lê
+    // isto — aqui é só o typecheck.
     "paths": { "@/*": ["./src/*"] },
 
     // RNF-22. `noUncheckedIndexedAccess` faz `queue[0]` ter tipo `QueueItem | undefined` — é
