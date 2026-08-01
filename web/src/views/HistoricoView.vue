@@ -7,7 +7,7 @@
 // encarando, e o histórico só cresce no fim de cada música.
 //
 // Os nomes de quem votou para pular chegam preenchidos só para o host (RF-25), e o filtro é do
-// SERVIDOR (bq/history.py). Esta tela renderiza o que veio: se a lista está vazia, não há nada
+// SERVIDOR (bq/view/history.py). Esta tela renderiza o que veio: se a lista está vazia, não há nada
 // a esconder aqui, e não existe caminho em que o template vaze por descuido.
 
 import { computed, onMounted, ref } from 'vue'

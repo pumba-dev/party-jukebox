@@ -158,7 +158,7 @@ watch([playAtual, () => party.skip.votes], ([play, votos], [playAntes, votosAnte
 
 /** O QR que conecta o celular na rede. Não é um link: o conteúdo é uma string do esquema
  * `WIFI:T:WPA;S:…;P:…;;`, que a câmera nativa do iOS 11+ e do Android 10+ reconhece e oferece
- * "conectar-se à rede". Montada no servidor (bq/net.py), porque o escape é a parte que erra.
+ * "conectar-se à rede". Montada no servidor (bq/core/net.py), porque o escape é a parte que erra.
  *
  * Vazio quando a rede não está configurada, e aí o /tv volta a mostrar um QR só — a ausência
  * não é um caso de erro, é a configuração de quem não quis usar. */

@@ -79,7 +79,7 @@ export const api = {
   state: () => req<StateSnapshot>('/api/state'),
 
   /** RF-42. Aberta a todos; a lista `voters` de cada item vem vazia para quem não é host, e o
-   * filtro é do SERVIDOR (bq/history.py) — a tela não tem o que esconder. */
+   * filtro é do SERVIDOR (bq/view/history.py) — a tela não tem o que esconder. */
   history: () => req<Schemas['HistoryOut']>('/api/history'),
 
   session: (nickname: string) => req<Schemas['SessionOut']>('/api/session', 'POST', { nickname }),

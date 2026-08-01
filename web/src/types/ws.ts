@@ -65,13 +65,13 @@ export type Settings = {
 }
 
 /** O corpo de `GET /api/state` e o payload da mensagem `state`, com o mesmo shape porque vêm
- * do mesmo construtor no servidor (bq/snapshot.py). */
+ * do mesmo construtor no servidor (bq/view/snapshot.py). */
 export type StateSnapshot = {
   v: number
   bootId: string
   joinUrl: string
   /** A string do esquema `WIFI:` — o CONTEÚDO do QR, não uma imagem. Montada no servidor
-   * (bq/net.py) porque o escape é a parte que erra: uma senha com `;` sem barra invertida gera
+   * (bq/core/net.py) porque o escape é a parte que erra: uma senha com `;` sem barra invertida gera
    * um QR que escaneia perfeitamente e conecta em nada. `null` = rede não configurada, e o /tv
    * mostra só o QR da fila. */
   wifiQr: string | null
