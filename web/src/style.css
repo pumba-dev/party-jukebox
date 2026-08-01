@@ -8,6 +8,10 @@
   --color-mute: #9a9ab0;
   --color-accent: #7c5cff;
   --color-warn: #ffb020;
+  /* "um voto e a música vai embora". Vermelho e não um âmbar mais forte: contra o `warn` da
+     faixa anterior, a diferença tem de ser de MATIZ e não de intensidade — a 3 metros, dois
+     tons de amarelo são o mesmo amarelo. */
+  --color-hot: #ff4d4f;
 }
 
 html,
@@ -34,6 +38,30 @@ select,
 textarea,
 button {
   font-size: 16px;
+}
+
+/* O contador de skip a um voto do fim (M2.8 · /tv). Respiração contínua e não um pulso: o pulso
+   diz "acabou de mudar", isto diz "está prestes a acontecer" — dois recados diferentes, e este é
+   o único estado do jogo em que vale ocupar a atenção da sala continuamente. */
+@keyframes bq-respira {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(255 77 79 / 0);
+  }
+  50% {
+    box-shadow: 0 0 2.5rem 0.35rem rgb(255 77 79 / 0.45);
+  }
+}
+.bq-quase {
+  animation: bq-respira 1.15s ease-in-out infinite;
+}
+/* Piscar sem parar é desconfortável para quem é sensível a isso. O pulso de UM disparo por voto
+   continua — ele é o recado, e 500 ms não é piscar. */
+@media (prefers-reduced-motion: reduce) {
+  .bq-quase {
+    animation: none;
+    box-shadow: 0 0 2rem 0.3rem rgb(255 77 79 / 0.4);
+  }
 }
 
 /* seleção acidental em vez de toque, com o celular na mão e de pé */
