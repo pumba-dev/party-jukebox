@@ -129,8 +129,12 @@ const invariantesRuins = computed(() => {
 
 const device = computed(() => saude.value?.['device'] as { name: string } | null | undefined)
 const cond = computed(
-  () => saude.value?.['conductor'] as { passive: boolean; restarts: number } | undefined,
+  () =>
+    saude.value?.['conductor'] as
+      | { passive: boolean; restarts: number; externalStrikes: number }
+      | undefined,
 )
+const externalStrikes = computed(() => cond.value?.externalStrikes ?? 0)
 const poll = computed(() => saude.value?.['lastPoll'] as { ok: boolean; agoMs: number } | undefined)
 const erros = computed(
   () => (saude.value?.['spotify'] as { recentErrors: string[] } | undefined)?.recentErrors ?? [],
@@ -265,7 +269,29 @@ onUnmounted(() => window.clearInterval(tick))
         </ul>
       </section>
 
-      <!-- fila com remover (RF-29) -->
+      <!-- RF-19 · a rendição. Vem ANTES da fila de propósito: quando o maestro está passivo,
+           nada mais nesta tela funciona como o esperado, e a explicação tem de estar acima do
+           sintoma. -->
+      <section
+        v-if="cond?.passive"
+        class="border-warn rounded-2xl border-2 bg-black/30 p-4"
+      >
+        <p class="text-warn font-bold">A fila parou de tocar sozinha</p>
+        <p class="text-mute mt-1 text-sm">
+          O Spotify mudou de faixa por fora
+          {{ externalStrikes ? `${externalStrikes} vezes seguidas` : '' }} — provavelmente alguém
+          deu play em outro aparelho na mesma conta. Feche o Spotify do celular e reative aqui.
+        </p>
+        <button
+          class="bg-warn no-select mt-3 w-full rounded-xl px-4 py-3 font-bold text-black"
+          :disabled="ocupado"
+          @click="acao(api.host.reactivate)"
+        >
+          Resolvi — voltar a tocar a fila
+        </button>
+      </section>
+
+      <!-- fila com remover (RF-29) e bump (RF-30) -->
       <section>
         <p class="text-mute text-xs font-semibold tracking-widest uppercase">
           Fila ({{ party.queue.length }})
@@ -282,8 +308,20 @@ onUnmounted(() => window.clearInterval(tick))
               <span class="text-mute">— {{ item.suggestedBy }}</span>
               <span v-if="item.wasInterrupted" class="text-warn"> ↩</span>
             </span>
+            <!-- RF-30. Escondido no primeiro item porque "mover para a frente" não faz sentido
+                 para quem já é o próximo, e um botão que não faz nada é pior que um ausente. -->
+            <button
+              v-if="i > 0"
+              class="text-accent no-select shrink-0 px-2 text-lg leading-none"
+              :disabled="ocupado"
+              title="Tocar em seguida"
+              @click="acao(() => api.host.bump(item.suggestionId))"
+            >
+              ↑
+            </button>
             <button
               class="text-mute no-select shrink-0 px-2"
+              :disabled="ocupado"
               @click="acao(() => api.host.remove(item.suggestionId))"
             >
               ✕
@@ -348,6 +386,12 @@ onUnmounted(() => window.clearInterval(tick))
           <li v-for="(e, i) in erros" :key="i" class="truncate">{{ e }}</li>
         </ul>
       </section>
+
+      <!-- RF-42. Daqui o histórico vem COM os nomes de quem votou (RF-25), porque o cookie do
+           host vai na requisição. Na mesma página aberta pelo celular de um convidado, não. -->
+      <RouterLink class="text-mute mb-6 text-center text-sm underline" to="/historico">
+        histórico da festa
+      </RouterLink>
     </template>
   </main>
 </template>

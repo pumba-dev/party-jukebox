@@ -155,6 +155,38 @@ async def host_remove(suggestion_id: int, _: Host) -> Response:
     return Response(status_code=204)
 
 
+@router.post("/reactivate")
+async def reactivate(_: Host) -> dict[str, bool]:
+    """RF-19. Sai do modo passivo e volta a despachar.
+
+    Existe porque a rendição é deliberada e não temporizada: um `_passive` que expirasse sozinho
+    depois de N minutos voltaria a brigar com quem está tocando pelo celular, e o anfitrião veria
+    o problema "voltar" sem entender que nunca tinha sido resolvido. Quem resolve o conflito é
+    uma pessoa fechando o outro app, então é uma pessoa que diz quando acabou.
+    """
+    await runtime.require_conductor().reactivate()
+    return {"ok": True}
+
+
+@router.post("/suggestions/{suggestion_id}/bump")
+async def host_bump(suggestion_id: int, _: Host) -> dict[str, bool]:
+    """RF-30. Move uma sugestão para a frente da fila.
+
+    Não altera cooldown nem cota de ninguém: é reordenação, não uma sugestão nova. E não fura o
+    round-rank de quem já estava na frente por merecimento — apenas põe esta antes de todos, que
+    é o que o host pediu ao clicar.
+    """
+    owner = queue.owner_of(suggestion_id)
+    if owner is None:
+        raise ApiError("NOT_FOUND", "Essa sugestão não existe mais.")
+    if owner[1] != "queued":
+        raise ApiError("NOT_QUEUED", "Essa já saiu da fila.", state=owner[1])
+    queue.bump_to_front(suggestion_id)
+    await ws.notify()
+    runtime.require_conductor().wake()  # fila vazia + bump = tem o que tocar agora
+    return {"ok": True}
+
+
 @router.post("/device/resolve")
 async def resolve_device(_: Host) -> dict[str, Any]:
     """O botão de "reabri o Spotify, tenta de novo" — a ação de recuperação mais provável da

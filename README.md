@@ -143,7 +143,8 @@ Ele builda o frontend se algo mudou, confere a porta, e imprime em destaque as t
 |---|---|---|
 | `/` | celular dos convidados | apelido, busca, sugerir, votar para pular |
 | `/tv` | monitor, em fullscreen | faixa atual, fila, contador de skip, **dois QRs**. **Nada clicável** |
-| `/host` | seu notebook | pular, pausar, tocar agora, remover, limiares, saúde |
+| `/host` | seu notebook | pular, pausar, tocar agora, remover, mover na fila, limiares, saúde |
+| `/historico` | qualquer celular | o que já tocou, quem sugeriu, o que foi pulado. Quem votou aparece só para o host |
 
 Para o monitor, Chromium em modo quiosque — sem cursor, sem barra, sem risco de alguém navegar:
 
@@ -199,7 +200,7 @@ isso a votação e a fila justa viram enfeite. Ver
 | Sintoma | O que fazer |
 |---|---|
 | **Nada toca, mas a fila anda** | o app desktop do Spotify fechou ou deslogou. Reabra e clique em **"Reabri o Spotify, procurar o device"** no `/host` |
-| **O `/host` diz `maestro PASSIVO`** | alguém mexeu no Spotify por fora e o sistema desistiu de brigar. Ver o runbook |
+| **O `/tv` diz "a fila está esperando"** | alguém deu play em outro aparelho na mesma conta 3 vezes e o sistema desistiu de brigar. Feche o Spotify do celular e clique em **"Resolvi — voltar a tocar a fila"** no `/host` |
 | **Convidado não abre a página** | confira se o IP impresso é o do Wi-Fi (VPN desligada) e se o celular está na mesma rede |
 | **Pediram o apelido de novo** | cookie limpo. Só reentrar — mas o tempo de espera dele zerou |
 | **Volume salta entre músicas** | o Spotify não normaliza volume em device de terceiros. Ajuste na caixa |
@@ -215,7 +216,8 @@ Playbook completo, sintoma por sintoma: [.docs/11-runbook-da-festa.md](.docs/11-
 |---|---|
 | **M0 — toca** | pronto. Sugestão do celular → faixa toca → a próxima entra sozinha |
 | **M1 — o jogo** | pronto. Fila justa, votação, `/tv`, `/host` completo, WebSocket |
-| **M2 — acabamento** | pendente: supervisor exposto no `/host`, retomada de playback após restart, página de histórico, animações |
+| **M2 — acabamento** | pronto. Modo passivo, retomada após restart, mover na fila, `/historico`, animações |
+| **M2.9 — park/resume** | **não vai ser feito.** A faixa interrompida por "tocar agora" recomeça do início, e isso é decisão e não pendência ([ADR-008](.docs/adr/ADR-008-force-play-simples-vs-park-resume.md)): 3 h de máquina de estados para trocar um comportamento aceitável por um elegante, num app de uma noite |
 
 Duas coisas **ainda não foram exercitadas contra o Spotify de verdade** — só contra um duplo de
 teste com latência injetada:
@@ -232,7 +234,7 @@ teste com latência injetada:
 ## Desenvolvimento
 
 ```powershell
-# testes (62, sem rede e sem caixa de som — uma festa inteira roda em segundos)
+# testes (104, sem rede e sem caixa de som — uma festa inteira roda em segundos)
 cd api
 .\.venv\Scripts\pip install -e ".[dev]"
 .\.venv\Scripts\python -m pytest

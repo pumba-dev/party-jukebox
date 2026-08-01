@@ -16,6 +16,7 @@ export const useParty = defineStore('party', () => {
   const me = ref<Me | null>(null)
   const settings = ref<Settings | null>(null)
   const guestsOnline = ref(0)
+  const stalled = ref<'passive' | 'paused' | null>(null)
   const joinUrl = ref('')
   const wifiQr = ref<string | null>(null)
   const wifiSsid = ref<string | null>(null)
@@ -43,6 +44,7 @@ export const useParty = defineStore('party', () => {
     me.value = s.me
     settings.value = s.settings
     guestsOnline.value = s.guestsOnline
+    stalled.value = s.stalled
     joinUrl.value = s.joinUrl
     hello(s.bootId, s.joinUrl, s.wifiQr, s.wifiSsid)
     connected.value = true
@@ -87,6 +89,7 @@ export const useParty = defineStore('party', () => {
     me,
     settings,
     guestsOnline,
+    stalled,
     joinUrl,
     wifiQr,
     wifiSsid,

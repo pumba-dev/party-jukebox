@@ -310,6 +310,28 @@
         }
       }
     },
+    "/api/history": {
+      "get": {
+        "tags": [
+          "estado"
+        ],
+        "summary": "Read History",
+        "description": "RF-42. Aberta a todos — o que tocou e quem sugeriu já é público no /tv e na fila.\n\nOs nomes de votantes, não: eles vão só para quem tem o cookie do host (RF-25). É por isso que\nesta rota checa o cookie **sem** exigi-lo, em vez de usar a dependência `Host`: negar a página\ninteira aos convidados tiraria deles a parte boa, e mandar os nomes para todos abriria por uma\nporta lateral exatamente o que RF-25 fecha na porta da frente.",
+        "operationId": "read_history_api_history_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/host/session": {
       "post": {
         "tags": [
@@ -593,6 +615,79 @@
         }
       }
     },
+    "/api/host/reactivate": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Reactivate",
+        "description": "RF-19. Sai do modo passivo e volta a despachar.\n\nExiste porque a rendição é deliberada e não temporizada: um `_passive` que expirasse sozinho\ndepois de N minutos voltaria a brigar com quem está tocando pelo celular, e o anfitrião veria\no problema \"voltar\" sem entender que nunca tinha sido resolvido. Quem resolve o conflito é\numa pessoa fechando o outro app, então é uma pessoa que diz quando acabou.",
+        "operationId": "reactivate_api_host_reactivate_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Reactivate Api Host Reactivate Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host/suggestions/{suggestion_id}/bump": {
+      "post": {
+        "tags": [
+          "host"
+        ],
+        "summary": "Host Bump",
+        "description": "RF-30. Move uma sugestão para a frente da fila.\n\nNão altera cooldown nem cota de ninguém: é reordenação, não uma sugestão nova. E não fura o\nround-rank de quem já estava na frente por merecimento — apenas põe esta antes de todos, que\né o que o host pediu ao clicar.",
+        "operationId": "host_bump_api_host_suggestions__suggestion_id__bump_post",
+        "parameters": [
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Host Bump Api Host Suggestions  Suggestion Id  Bump Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/host/device/resolve": {
       "post": {
         "tags": [
@@ -711,6 +806,129 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HistoryItem": {
+        "properties": {
+          "playId": {
+            "type": "integer",
+            "title": "Playid"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "startedAtMs": {
+            "type": "integer",
+            "title": "Startedatms"
+          },
+          "suggestedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestedby"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "guest",
+              "host_force"
+            ],
+            "title": "Source"
+          },
+          "endReason": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "skip_vote",
+              "host_skip",
+              "host_force",
+              "external",
+              "error"
+            ],
+            "title": "Endreason"
+          },
+          "heardMs": {
+            "type": "integer",
+            "title": "Heardms"
+          },
+          "skipVotes": {
+            "type": "integer",
+            "title": "Skipvotes"
+          },
+          "voters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Voters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "playId",
+          "track",
+          "startedAtMs",
+          "suggestedBy",
+          "source",
+          "endReason",
+          "heardMs",
+          "skipVotes",
+          "voters"
+        ],
+        "title": "HistoryItem",
+        "description": "Uma execução encerrada. RF-41 gravou; RF-42 é isto ficar legível."
+      },
+      "HistoryOut": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/HistorySummary"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary",
+          "items"
+        ],
+        "title": "HistoryOut"
+      },
+      "HistorySummary": {
+        "properties": {
+          "plays": {
+            "type": "integer",
+            "title": "Plays"
+          },
+          "heardMs": {
+            "type": "integer",
+            "title": "Heardms"
+          },
+          "guests": {
+            "type": "integer",
+            "title": "Guests"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plays",
+          "heardMs",
+          "guests",
+          "skipped"
+        ],
+        "title": "HistorySummary"
       },
       "Me": {
         "properties": {
@@ -1374,6 +1592,21 @@
             "type": "integer",
             "title": "Guestsonline"
           },
+          "stalled": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "passive",
+                  "paused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stalled"
+          },
           "me": {
             "anyOf": [
               {
@@ -1397,6 +1630,7 @@
           "skip",
           "settings",
           "guestsOnline",
+          "stalled",
           "me"
         ],
         "title": "StateSnapshot",

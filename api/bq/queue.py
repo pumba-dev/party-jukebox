@@ -97,9 +97,25 @@ def insert(guest_id: int, track_id: str, now: int) -> int:
 
 
 def bump_to_front(suggestion_id: int) -> None:
-    """`rank = -1`: a sugestão passa à frente de tudo. Usado pela interrupção de force-play
-    (RF-26) e pelo bump do host (RF-30)."""
-    db.run("UPDATE suggestion SET rank = -1 WHERE id = ? AND state = 'queued'", (suggestion_id,))
+    """RF-30. O host move uma sugestão para a frente de TODA a fila.
+
+    `MIN(rank) - 1` e não `rank = -1` fixo: com o valor fixo, dar bump em A e depois em B deixa
+    as duas em `-1` e o desempate passa a ser `suggested_at` — então B não vai para a frente, e o
+    host, que acabou de clicar em B, lê isso como o botão não funcionar. Com o mínimo menos um,
+    cada bump entra estritamente na frente, inclusive na frente de bumps anteriores e da faixa
+    que voltou por force-play (`rank = -1`): quando o host escolhe depois, o host escolhe melhor.
+
+    O `-1` no `MIN` externo garante que a primeira sugestão bumpada de uma fila que começa em
+    `rank 0` vá para `-1`, e não para `-1` por acidente de aritmética.
+    """
+    db.run(
+        """
+        UPDATE suggestion
+           SET rank = MIN(-1, (SELECT MIN(rank) FROM suggestion WHERE state = 'queued') - 1)
+         WHERE id = ? AND state = 'queued'
+        """,
+        (suggestion_id,),
+    )
 
 
 # --- as regras de aceitação (RF-09 · RF-11 · RF-12 · RF-13) ----------------------------------

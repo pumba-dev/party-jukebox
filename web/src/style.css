@@ -64,6 +64,67 @@ button {
   }
 }
 
+/* --- M2.8 · animações do /tv -----------------------------------------------------------------
+   Duas transições, e as duas existem para dar CONTINUIDADE: num monitor a 3 metros, conteúdo que
+   troca instantaneamente é indistinguível de conteúdo que sempre esteve ali, e a sala perde o
+   momento em que a música virou. */
+
+/* a troca de faixa. `mode="out-in"` no template: sai, depois entra. */
+.troca-enter-active {
+  transition:
+    opacity 320ms ease-out,
+    transform 320ms ease-out;
+}
+.troca-leave-active {
+  transition:
+    opacity 200ms ease-in,
+    transform 200ms ease-in;
+}
+.troca-enter-from {
+  opacity: 0;
+  transform: translateY(1.5rem);
+}
+.troca-leave-to {
+  opacity: 0;
+  transform: translateY(-1rem);
+}
+
+/* entrada, saída e MOVIMENTO na fila */
+.fila-move,
+.fila-enter-active,
+.fila-leave-active {
+  transition:
+    opacity 260ms ease-out,
+    transform 260ms ease-out;
+}
+.fila-enter-from {
+  opacity: 0;
+  /* entra pela direita e não de cima: de cima, o item novo cruza o `▸` do próximo e por um
+     instante parece que a ordem mudou quando não mudou. */
+  transform: translateX(2.5rem);
+}
+.fila-leave-to {
+  opacity: 0;
+  transform: translateX(-2.5rem);
+}
+/* 🔴 O item que sai TEM de sair do fluxo, senão os que ficam só começam a se mover depois que a
+   saída termina — e o `move`, que é o efeito que interessa (a música subindo na fila), não
+   acontece. A `<ul>` é `relative` no template por causa disto. */
+.fila-leave-active {
+  position: absolute;
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .troca-enter-active,
+  .troca-leave-active,
+  .fila-move,
+  .fila-enter-active,
+  .fila-leave-active {
+    transition-duration: 1ms;
+  }
+}
+
 /* seleção acidental em vez de toque, com o celular na mão e de pé */
 .no-select {
   -webkit-user-select: none;

@@ -146,6 +146,17 @@ class StateSnapshot(Model):
     skip: SkipState
     settings: SettingsOut
     guests_online: int
+    # 🔴 POR QUE nada está tocando, quando não é simplesmente "a fila acabou".
+    #
+    # `player: idle` responde "nada toca" e é ambíguo: idle com a fila vazia é o estado ESPERADO
+    # de ADR-005, e idle com dez músicas na fila é uma falha. Sem este campo o /tv renderiza a
+    # mesma tela — "a fila está vazia · aponte a câmera" — nos dois casos, e no segundo ela está
+    # mentindo na frente de todos. Bug que já existia para a pausa do host (RF-28) e que o modo
+    # passivo de RF-19 tornaria permanente.
+    #
+    # `passive` vem antes de `paused` quando os dois valem: a pausa é intencional, o passivo é o
+    # que ninguém pediu e exige ação.
+    stalled: Literal["passive", "paused"] | None
     me: Me | None
 
 
@@ -210,6 +221,34 @@ class VotersOut(Model):
     play_id: int | None
     needed: int
     voters: list[Voter]
+
+
+class HistoryItem(Model):
+    """Uma execução encerrada. RF-41 gravou; RF-42 é isto ficar legível."""
+
+    play_id: int
+    track: Track
+    started_at_ms: int
+    suggested_by: str | None  # None quando foi "tocar agora" do host
+    source: Literal["guest", "host_force"]
+    end_reason: Literal["finished", "skip_vote", "host_skip", "host_force", "external", "error"]
+    heard_ms: int
+    skip_votes: int
+    # 🔴 Nomes só para o host (RF-25). Para convidado e /tv esta lista vem SEMPRE vazia — não
+    # é filtrada na tela, é filtrada no servidor, senão um dia alguém renderiza o que não devia.
+    voters: list[str]
+
+
+class HistorySummary(Model):
+    plays: int
+    heard_ms: int
+    guests: int
+    skipped: int
+
+
+class HistoryOut(Model):
+    summary: HistorySummary
+    items: list[HistoryItem]
 
 
 class SettingsPatch(Model):

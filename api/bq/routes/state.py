@@ -7,11 +7,13 @@ impressão, que é onde S2 se ganha) e, a partir de M2.2, para a revalidação e
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from .. import guests, snapshot
-from ..models import StateSnapshot
+from .. import guests, history, snapshot
+from ..models import HistoryOut, StateSnapshot
+from ..party import party
 from .deps import MaybeGuest
+from .host import COOKIE as HOST_COOKIE
 
 router = APIRouter(prefix="/api", tags=["estado"])
 
@@ -23,3 +25,17 @@ def state(guest: MaybeGuest) -> StateSnapshot:
         # passa a vir das conexões de WebSocket.
         guests.touch(guest)
     return snapshot.build(guest)
+
+
+@router.get("/history", response_model=HistoryOut)
+def read_history(request: Request) -> HistoryOut:
+    """RF-42. Aberta a todos — o que tocou e quem sugeriu já é público no /tv e na fila.
+
+    Os nomes de votantes, não: eles vão só para quem tem o cookie do host (RF-25). É por isso que
+    esta rota checa o cookie **sem** exigi-lo, em vez de usar a dependência `Host`: negar a página
+    inteira aos convidados tiraria deles a parte boa, e mandar os nomes para todos abriria por uma
+    porta lateral exatamente o que RF-25 fecha na porta da frente.
+    """
+    token = request.cookies.get(HOST_COOKIE)
+    is_host = bool(token and token in party.host_tokens)
+    return history.build(with_voters=is_host)

@@ -33,6 +33,7 @@ class FakeSpotify:
         self.playing: str | None = None
         self.started_wall = 0
         self.duration = 0
+        self.paused = False
 
         self.calls: list[tuple[str, str]] = []  # log para asserção de ordem
         self.starts: list[Started] = []
@@ -67,6 +68,14 @@ class FakeSpotify:
         self.started_wall = self.clk.wall
         self.duration = self.durations.get(uri, 0)
         self.starts.append(Started(self.clk.wall, uri, self.duration))
+
+    async def pause(self) -> None:
+        self.calls.append(("pause", self.playing or ""))
+        self.paused = True
+
+    async def resume(self) -> None:
+        self.calls.append(("resume", self.playing or ""))
+        self.paused = False
 
     async def get_playback(self) -> Poll:
         self.calls.append(("poll", self.playing or ""))

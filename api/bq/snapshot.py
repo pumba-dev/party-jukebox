@@ -145,6 +145,17 @@ def _me(guest: Guest | None) -> Me | None:
     )
 
 
+def _stalled() -> str | None:
+    """Espelha exatamente a guarda de `Conductor._step`: se um dia elas divergirem, o /tv passa
+    a explicar um estado que não é o do maestro."""
+    cond = runtime.conductor
+    if cond is not None and cond.passive:
+        return "passive"
+    if S.paused:
+        return "paused"
+    return None
+
+
 def _online() -> int:
     hub = runtime.hub
     if hub is not None and hub.conns:
@@ -170,6 +181,7 @@ def build(guest: Guest | None) -> StateSnapshot:
             repeat_window_ms=S.repeat_window_ms,
         ),
         guests_online=_online(),
+        stalled=_stalled(),  # type: ignore[arg-type]  # Literal validado pelo pydantic
         me=_me(guest),
     )
 

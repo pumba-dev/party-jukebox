@@ -78,6 +78,10 @@ export type SearchResult = Omit<Schemas['SearchResult'], 'trackId'> & { trackId:
 export const api = {
   state: () => req<StateSnapshot>('/api/state'),
 
+  /** RF-42. Aberta a todos; a lista `voters` de cada item vem vazia para quem não é host, e o
+   * filtro é do SERVIDOR (bq/history.py) — a tela não tem o que esconder. */
+  history: () => req<Schemas['HistoryOut']>('/api/history'),
+
   session: (nickname: string) => req<Schemas['SessionOut']>('/api/session', 'POST', { nickname }),
   rename: (nickname: string) => req<Schemas['SessionOut']>('/api/session', 'PATCH', { nickname }),
 
@@ -108,6 +112,12 @@ export const api = {
     voters: () => req<Schemas['VotersOut']>('/api/host/skip-votes'),
     remove: (suggestionId: number) =>
       req<void>(`/api/host/suggestions/${suggestionId}`, 'DELETE'),
+    // RF-30
+    bump: (suggestionId: number) =>
+      req<{ ok: boolean }>(`/api/host/suggestions/${suggestionId}/bump`, 'POST'),
+    // RF-19 · sai do modo passivo. Deliberado e não temporizado: quem resolve o conflito é uma
+    // pessoa fechando o outro app, então é uma pessoa que diz quando acabou.
+    reactivate: () => req<{ ok: boolean }>('/api/host/reactivate', 'POST'),
     resolveDevice: () => req<Record<string, unknown>>('/api/host/device/resolve', 'POST'),
   },
 }

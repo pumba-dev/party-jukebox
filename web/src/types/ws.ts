@@ -82,6 +82,12 @@ export type StateSnapshot = {
   skip: SkipState
   settings: Settings
   guestsOnline: number
+  /** POR QUE nada toca, quando não é simplesmente "a fila acabou".
+   *
+   * `player: idle` é ambíguo: idle com fila vazia é o estado esperado de ADR-005; idle com dez
+   * músicas na fila é falha. Sem este campo a tela renderiza "a fila está vazia" nos dois casos,
+   * e no segundo mente na frente de todos. */
+  stalled: 'passive' | 'paused' | null
   me: Me | null
 }
 

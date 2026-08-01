@@ -362,6 +362,12 @@ onMounted(() => {
       <p v-if="!party.connected" class="text-warn text-center text-xs">
         reconectando…
       </p>
+
+      <!-- RF-42. No fim e discreto: durante a festa ninguém veio aqui para ler o passado, mas às
+           2h da manhã "qual era aquela música?" é a pergunta mais feita da noite. -->
+      <RouterLink class="text-mute mt-2 text-center text-xs underline" to="/historico">
+        o que já tocou
+      </RouterLink>
     </template>
   </main>
 </template>

@@ -22,7 +22,7 @@ import asyncio
 import enum
 from dataclasses import dataclass, field
 
-from . import clock, db, log, queue, ws
+from . import clock, db, log, queue, tracks, ws
 from .party import S, party
 from .queue import QueuedItem
 from .spotify.client import Poll, Playback, SpotifyClient, SpotifyError
@@ -49,6 +49,14 @@ DRIFT_TOLERANCE_MS = 500
 # seguinte — laço apertado contra o Spotify. Daí o backoff e o limite por sugestão.
 FAIL_BACKOFF_MS = (1_000, 3_000, 8_000, 20_000)
 MAX_FAILS_PER_SUGGESTION = 3
+
+# RF-19 · quantas mudanças externas SEGUIDAS antes de desistir de brigar pelo controle.
+#
+# O limite existe porque a alternativa não é "insistir mais": é uma briga que o convidado não
+# entende e que o sistema não vence. Se alguém está tocando do próprio celular na mesma conta,
+# cada retomada nossa interrompe a música dele e cada play dele interrompe a nossa — a sala ouve
+# 20 segundos de cada coisa. Desistir e avisar o anfitrião é melhor que qualquer número maior.
+MAX_EXTERNAL_STRIKES = 3
 
 
 class PlayState(enum.Enum):
@@ -117,9 +125,41 @@ class Conductor:
 
     @property
     def passive(self) -> bool:
-        """RF-19 / M2.3: rendição explícita depois de 3 tentativas frustradas de retomar o
-        controle. Precisa aparecer no /host, senão você não entende por que a fila parou."""
+        """RF-19: rendição explícita depois de 3 tentativas frustradas de retomar o controle.
+        Precisa aparecer no /host, senão você não entende por que a fila parou."""
         return self._passive
+
+    async def _surrender(self) -> None:
+        """RF-19. Para de despachar e conta para as telas.
+
+        Dois canais, e os dois são necessários por motivos diferentes: o `notice` é o instante
+        (quem está olhando agora vê o aviso aparecer) e o campo `stalled` do snapshot é a
+        condição (quem abrir a página em dez minutos ainda descobre por quê). Só o aviso e o /tv
+        volta a dizer "a fila está vazia" com dez músicas na fila — uma tela mentindo.
+        """
+        if self._passive:
+            return
+        self._passive = True
+        _L.error(
+            "MODO PASSIVO: %d mudanças externas seguidas. Não despacho mais até reativarem.",
+            party.external_strikes,
+        )
+        party.note_error(f"modo passivo após {party.external_strikes} mudanças externas")
+        await ws.notify()  # o `stalled` do snapshot mudou
+        await ws.notice(
+            "warn",
+            "Alguém está controlando o Spotify por fora. A fila parou — "
+            "o anfitrião precisa retomar no /host.",
+        )
+
+    async def reactivate(self) -> None:
+        """O host resolveu o conflito (fechou o outro app) e manda voltar a despachar."""
+        async with self._lock:
+            self._passive = False
+            party.external_strikes = 0
+            _L.info("modo passivo desligado pelo host")
+            await ws.notify()
+        self.wake()
 
     # --- laço -----------------------------------------------------------------------------
 
@@ -194,6 +234,96 @@ class Conductor:
             if nxt is not None:
                 await self._dispatch(nxt)  # RF-16, antecipado
             # else: fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
+
+    # --- readoção após restart (RF-40) -----------------------------------------------------
+
+    async def adopt(self) -> None:
+        """RF-40. Se algo estava tocando quando o processo caiu, continua de onde está.
+
+        🔴 Isto NÃO é opcional, e a razão não é o requisito — é o índice. `_end_play` é o único
+        lugar que fecha um play, e no shutdown a task é cancelada antes de qualquer fechamento:
+        a linha fica com `ended_at IS NULL`. Como `ux_play_open` só admite um play aberto, deixar
+        a linha órfã e seguir com `current = None` faz o PRÓXIMO despacho estourar no INSERT — a
+        fila para com a fila cheia, e o erro no log fala de índice único, não de restart.
+        Portanto: ou readota, ou fecha. Nunca ignora.
+
+        `anchor_mono` não sobreviveu (04 §2: monotônico não vai para o banco), então a posição
+        vem de um `GET /me/player` fresco. É por isso que RF-40 é M2 e não M0.
+        """
+        row = db.one(
+            """
+            SELECT p.id, p.track_id, p.suggestion_id, p.guest_id, p.source, p.started_at,
+                   p.duration_ms, p.protected_until, g.nickname AS nick
+              FROM play p
+              LEFT JOIN guest g ON g.id = p.guest_id
+             WHERE p.ended_at IS NULL
+            """
+        )
+        if row is None:
+            return
+
+        track = tracks.get(str(row["track_id"]))
+        if track is None:
+            # faixa sumiu do catálogo local: nada a readotar, e a linha tem de fechar
+            _L.error("play=%s aberto com faixa desconhecida; fechando", row["id"])
+            db.run(
+                "UPDATE play SET ended_at=?, end_reason='error', heard_ms=0 WHERE id=?",
+                (clock.wall_ms(), row["id"]),
+            )
+            db.run(
+                "UPDATE suggestion SET state='queued', play_id=NULL WHERE play_id=?", (row["id"],)
+            )
+            return
+
+        play = Play(
+            play_id=int(row["id"]),
+            track=track,
+            duration_ms=int(row["duration_ms"]),
+            source=str(row["source"]),
+            suggestion_id=row["suggestion_id"],
+            guest_id=row["guest_id"],
+            nickname=row["nick"],
+            protected_until=int(row["protected_until"]),
+            started_at=int(row["started_at"]),
+        )
+
+        poll = await self.spotify.get_playback()
+        pb = poll.playback
+        if poll.ok and pb is not None and pb.track_uri == track.uri:
+            play.state = PlayState.PLAYING
+            self.current = play
+            self._anchor(play, pb.progress_ms)
+            if pb.duration_ms:
+                play.duration_ms = pb.duration_ms
+            _L.info(
+                "readotei play=%d %s em %d s (RF-40)",
+                play.play_id,
+                track.name,
+                play.start_pos_ms // 1000,
+            )
+            await ws.notify()
+            return
+
+        # Não é mais a nossa faixa — ou o Spotify não respondeu e não sabemos. Fecha pela saída
+        # única, para a `suggestion` acompanhar e nada ficar preso em `playing`.
+        decorrido = clock.wall_ms() - play.started_at
+        if poll.ok and pb is not None:
+            reason = "external"  # o Spotify seguiu para outra coisa enquanto estávamos fora
+        elif decorrido >= play.duration_ms:
+            reason = "finished"  # ficou fora mais tempo que a música durava: ela acabou
+        else:
+            reason = "error"
+        # `heard_ms` sai do relógio de PAREDE: é o único que atravessa o restart.
+        play.state = PlayState.PLAYING
+        play.start_pos_ms = min(decorrido, play.duration_ms)
+        play.anchor_mono = clock.mono_ms()
+        _L.info(
+            "play=%d não readotado (%s); fechando com %d s ouvidos",
+            play.play_id,
+            reason,
+            play.start_pos_ms // 1000,
+        )
+        await self._end_play(play, reason)
 
     # --- despacho -------------------------------------------------------------------------
 
@@ -395,6 +525,13 @@ class Conductor:
                 else:  # finished, external, error depois de ter tocado
                     db.run("UPDATE suggestion SET state='played' WHERE id=?", (cur.suggestion_id,))
 
+        # RF-19 diz 3 mudanças externas **SEGUIDAS**, e é aqui que se sabe que a série quebrou:
+        # estes três motivos significam que a faixa foi nossa do início ao fim do que o jogo
+        # determinou. Sem o reset, uma mudança externa às 21h e outra às 23h somariam, e o
+        # sistema entraria em modo passivo por causa de dois incidentes sem relação nenhuma.
+        if reason in ("finished", "skip_vote", "host_skip"):
+            party.external_strikes = 0
+
         self.current = None
         await ws.notify()
         _L.info(
@@ -440,15 +577,19 @@ class Conductor:
 
         if pb.track_uri != cur.track.uri or not pb.is_our_kind:
             if cur.state is PlayState.DISPATCHING:
-                await self._chase_confirmation(cur)
+                await self._chase_confirmation(cur, pb)
                 return
             party.external_strikes += 1
             _L.warning(
-                "mudança externa: Spotify toca %s, esperávamos %s",
+                "mudança externa %d/%d: Spotify toca %s, esperávamos %s",
+                party.external_strikes,
+                MAX_EXTERNAL_STRIKES,
                 pb.track_uri,
                 cur.track.uri,
             )
             await self._end_play(cur, "external")
+            if party.external_strikes >= MAX_EXTERNAL_STRIKES:
+                await self._surrender()
             return
 
         # é a nossa faixa
@@ -522,13 +663,25 @@ class Conductor:
         cur.anchor_mono = clock.mono_ms()
         cur.anchor_wall = clock.wall_ms()
 
-    async def _chase_confirmation(self, cur: Play) -> None:
+    async def _chase_confirmation(self, cur: Play, pb: Playback | None = None) -> None:
         """O `204` foi aceito mas o poller ainda não vê a faixa. Reemite, e ao 3º desiste."""
         if clock.mono_ms() - cur.dispatched_at_mono < CONFIRM_TIMEOUT_MS:
             return
         if cur.attempts >= MAX_DISPATCH_ATTEMPTS:
             _L.error("play=%d não confirmou em %d tentativas; desisto", cur.play_id, cur.attempts)
+            if pb is not None and pb.track_uri is not None and pb.track_uri != cur.track.uri:
+                # 🔴 Não confirmamos porque OUTRA coisa está tocando — isso é mudança externa de
+                # RF-19, e sem contar aqui existia um buraco: quem sequestrasse na janela de ~1 s
+                # em que a faixa ainda está DISPATCHING caía sempre neste caminho, nunca somava
+                # strike, e o modo passivo era inalcançável por mais que insistisse.
+                party.external_strikes += 1
+                _L.warning("mudança externa %d/%d (sem confirmação)", party.external_strikes, MAX_EXTERNAL_STRIKES)
+            # O motivo continua `error` e não `external`: esta faixa NUNCA tocou, e só `error`
+            # com `never_started` devolve a sugestão para a fila. Com `external` ela seria
+            # marcada como `played` — a pessoa perderia a vez por uma música que não saiu.
             await self._end_play(cur, "error")
+            if party.external_strikes >= MAX_EXTERNAL_STRIKES:
+                await self._surrender()
             return
         cur.attempts += 1
         cur.dispatched_at_mono = clock.mono_ms()

@@ -97,6 +97,19 @@ async def notify() -> None:
         await hub.broadcast_state()
 
 
+async def notice(level: str, text: str) -> None:
+    """Um aviso avulso, sem estado. Existe para o maestro poder falar sem importar `Hub`.
+
+    🔴 É transitório: quem conectar depois não recebe. Portanto **nunca** use isto para
+    comunicar um estado que persiste — para isso existe o campo no snapshot, que todo cliente
+    recebe sempre. O aviso serve para o instante ("acabei de entrar em modo passivo"), o
+    snapshot serve para a condição ("estou em modo passivo").
+    """
+    hub = runtime.hub
+    if hub is not None:
+        await hub.notice(level, text)
+
+
 async def endpoint(websocket: WebSocket) -> None:
     hub = runtime.hub
     assert hub is not None

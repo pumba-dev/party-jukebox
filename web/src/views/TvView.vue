@@ -23,6 +23,22 @@ const tocando = computed(() => (party.player.type === 'playing' ? party.player :
 const faixa = computed(() => (party.player.type === 'idle' ? null : party.player.track))
 const vazio = computed(() => party.player.type === 'idle')
 
+/** 🔴 `idle` responde "nada toca" e não responde POR QUÊ, e os dois porquês pedem telas
+ * opostas: fila vazia é um convite ("escolha a próxima"), fila parada é uma explicação.
+ *
+ * Sem isto o /tv dizia "a fila está vazia" com dez músicas na fila — durante a pausa do host
+ * (RF-28), e permanentemente depois do modo passivo de RF-19. */
+const parada = computed<{ titulo: string; sub: string } | null>(() => {
+  if (party.stalled === 'passive')
+    return {
+      titulo: 'a fila está esperando',
+      sub: 'o Spotify está sendo controlado por fora — o anfitrião já foi avisado',
+    }
+  if (party.stalled === 'paused')
+    return { titulo: 'pausado', sub: 'o anfitrião pausou a música' }
+  return null
+})
+
 // RF-34 · quando protegida, a contagem regressiva SUBSTITUI o contador. Um escudo mudo no lugar
 // do contador lê, para 30 pessoas, como o host tendo desligado a votação.
 const protecao = computed(() => {
@@ -161,8 +177,18 @@ watch(
     <!-- RF-36 · fila vazia ocupa a tela inteira. É um ramo obrigatório da união, não um v-if no
          fim do arquivo: por ADR-005 este estado acontece DE PROPÓSITO às 22h30. -->
     <section v-if="vazio" class="flex h-full flex-col items-center justify-center gap-8">
-      <p class="text-7xl font-black tracking-tight">a fila está vazia</p>
-      <p class="text-mute text-4xl">aponte a câmera e escolha a próxima</p>
+      <template v-if="parada">
+        <p class="text-warn text-7xl font-black tracking-tight">{{ parada.titulo }}</p>
+        <p class="text-mute max-w-5xl text-center text-4xl">{{ parada.sub }}</p>
+        <p v-if="party.queue.length" class="text-3xl">
+          <span class="text-accent font-black tabular-nums">{{ party.queue.length }}</span>
+          {{ party.queue.length === 1 ? 'música esperando' : 'músicas esperando' }}
+        </p>
+      </template>
+      <template v-else>
+        <p class="text-7xl font-black tracking-tight">a fila está vazia</p>
+        <p class="text-mute text-4xl">aponte a câmera e escolha a próxima</p>
+      </template>
 
       <!-- Os dois QRs são um PAR NUMERADO, não duas coisas soltas: sem a ordem, quem acabou de
            chegar escaneia o da fila primeiro, não está na rede ainda, e recebe um erro de
@@ -191,8 +217,14 @@ watch(
     </section>
 
     <div v-else class="flex h-full flex-col gap-8">
-      <!-- tocando agora -->
-      <section class="flex gap-10">
+      <!-- M2.8 · a troca de faixa. Chaveada no `trackId` e não no `playId`: `dispatching →
+           playing` da MESMA faixa não é uma troca, e reanimar ali faria a capa piscar 1 s depois
+           de aparecer, sem nada ter mudado para quem olha.
+
+           `mode="out-in"` porque as duas capas ocupam o mesmo lugar; simultâneas, elas se
+           sobrepõem por 300 ms e a sala vê duas músicas ao mesmo tempo. -->
+      <Transition name="troca" mode="out-in">
+      <section :key="faixa?.trackId ?? 'nada'" class="flex gap-10">
         <img
           v-if="faixa?.artUrl"
           alt=""
@@ -260,12 +292,17 @@ watch(
           </div>
         </div>
       </section>
+      </Transition>
 
       <!-- fila SEM numeração (RF-33). O `▸` marca só o próximo, e sai da store. -->
       <section class="border-line flex min-h-0 flex-1 gap-10 border-t pt-6">
         <div class="min-w-0 flex-1">
           <p class="text-mute text-2xl font-semibold tracking-[0.3em] uppercase">a seguir</p>
-          <ul class="mt-4 flex flex-col gap-2">
+          <!-- M2.8 · entrada na fila. `TransitionGroup` e não `Transition` porque o que importa
+               aqui não é só entrar: o round-rank insere no MEIO da fila, e o bump do host move
+               para a frente. O `move` cobre os dois de graça, e é o que faz a pessoa ver a
+               própria música subir em vez de a lista pular de um arranjo para outro. -->
+          <TransitionGroup tag="ul" name="fila" class="relative mt-4 flex flex-col gap-2">
             <li
               v-for="(item, i) in party.queue.slice(0, 6)"
               :key="item.suggestionId"
@@ -280,13 +317,15 @@ watch(
               <span class="text-accent shrink-0 text-2xl">{{ item.suggestedBy }}</span>
               <span v-if="item.wasInterrupted" class="text-warn shrink-0">↩</span>
             </li>
-            <li v-if="!party.queue.length" class="text-mute text-3xl">
+            <!-- Chaves obrigatórias: dentro de um TransitionGroup todo filho é rastreado por
+                 chave, e sem elas o Vue avisa no console e a animação de `move` erra o alvo. -->
+            <li v-if="!party.queue.length" key="vazia" class="text-mute text-3xl">
               ninguém na fila — sugira pelo QR
             </li>
-            <li v-else-if="party.queue.length > 6" class="text-mute text-2xl">
+            <li v-else-if="party.queue.length > 6" key="mais" class="text-mute text-2xl">
               e mais {{ party.queue.length - 6 }}
             </li>
-          </ul>
+          </TransitionGroup>
         </div>
 
         <!-- RF-35 · QR, URL e contagem de gente, permanentes. Permanentes porque gente chega a

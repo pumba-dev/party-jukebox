@@ -66,6 +66,26 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if broken:
         _L.error("banco com invariante violado no boot: %s", broken)
 
+    # RF-40 · ANTES de subir o laço: se o processo caiu com música tocando, a linha de `play`
+    # ficou aberta, e `ux_play_open` recusaria o próximo despacho enquanto ela estiver assim.
+    # Readotar (ou fechar) é pré-condição de o maestro funcionar, não um enfeite.
+    try:
+        await conductor.adopt()
+    except Exception:
+        # 🔴 Engolir e seguir seria pior que estourar: a linha aberta continuaria aberta e o
+        # próximo despacho morreria no índice único, com a fila cheia e um erro no log que fala
+        # de UNIQUE constraint e não de restart. Se a readoção falhou, a linha TEM de fechar.
+        _L.exception("readoção falhou; fechando à força o play aberto para destravar a fila")
+        db.run(
+            "UPDATE play SET ended_at=?, end_reason='error',"
+            " heard_ms=COALESCE(heard_ms, 0) WHERE ended_at IS NULL",
+            (clock.wall_ms(),),
+        )
+        db.run(
+            "UPDATE suggestion SET state='queued', play_id=NULL WHERE state='playing'",
+        )
+        conductor.current = None
+
     task = asyncio.create_task(conductor.run_forever(), name="maestro")
     _L.info("bq de pé em %s  ·  boot %s", net.join_url(settings.bind_port), party.boot_id)
     try:
