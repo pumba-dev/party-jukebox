@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .core import db
+from ..core import db
 from .party import S
 from .tracks import TrackRow
 

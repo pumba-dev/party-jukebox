@@ -6,9 +6,9 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from .. import guests
 from ..core.errors import ApiError
-from ..guests import Guest
+from ..domain import guests
+from ..domain.guests import Guest
 
 
 def current_guest(request: Request) -> Guest | None:

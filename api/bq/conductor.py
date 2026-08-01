@@ -20,14 +20,15 @@ from __future__ import annotations
 
 import asyncio
 
-from . import guards, queue, tracks, ws
+from . import ws
 from .core import clock, db, log
-from .party import S, party
-from .play import Play, PlayState
-from .queue import QueuedItem
+from .domain import guards, queue, tracks
+from .domain.party import S, party
+from .domain.play import Play, PlayState
+from .domain.queue import QueuedItem
+from .domain.tracks import TrackRow
 from .spotify.client import Poll, Playback, SpotifyClient, SpotifyError
 from .spotify.device import DeviceResolver
-from .tracks import TrackRow
 
 _L = log.get("maestro")
 

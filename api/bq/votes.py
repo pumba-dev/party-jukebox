@@ -5,13 +5,14 @@ Especificação normativa: .docs/05-api-http.md §4.
 
 from __future__ import annotations
 
-from . import guards, runtime, ws
+from . import runtime, ws
 from .core import clock, db
 from .core.errors import ApiError
-from .play import Play, PlayState
-from .guests import Guest
+from .domain import guards
+from .domain.guests import Guest
+from .domain.party import S
+from .domain.play import Play, PlayState
 from .models import VoteOut
-from .party import S
 
 
 def count(play_id: int) -> int:

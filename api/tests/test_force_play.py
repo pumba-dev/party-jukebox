@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from bq import guards, guests, queue, tracks, votes
+from bq import votes
 from bq.core import db
 from bq.core.errors import ApiError
-from bq.play import PlayState
-from bq.party import S
+from bq.domain import guards, guests, queue, tracks
+from bq.domain.party import S
+from bq.domain.play import PlayState
 
 from .conftest import FakeClock, make_track
 from .test_conductor import build, enqueue, simulate

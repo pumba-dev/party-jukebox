@@ -12,11 +12,12 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 
-from bq import guests, history, queue, runtime
-from bq.core import db
+from bq import history, runtime
 from bq.conductor import MAX_EXTERNAL_STRIKES, Conductor
-from bq.play import PlayState
-from bq.party import party
+from bq.core import db
+from bq.domain import guests, queue
+from bq.domain.party import party
+from bq.domain.play import PlayState
 from bq.spotify.device import DeviceResolver
 
 from .conftest import FakeClock
@@ -151,7 +152,7 @@ async def test_snapshot_conta_por_que_a_fila_parou(clk: FakeClock, guest: guests
 async def test_pausa_do_host_tambem_aparece_no_stalled(clk: FakeClock, guest: guests.Guest) -> None:
     """A pausa de RF-28 tinha o mesmo bug de tela, e ele já existia antes de M2.3."""
     from bq import snapshot
-    from bq.party import S
+    from bq.domain.party import S
 
     cond, fake = build(clk)
     enqueue(fake, guest.id, 1, 60_000, clk.wall)

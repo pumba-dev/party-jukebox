@@ -45,7 +45,13 @@ warn_unused_configs = true
 [[tool.mypy.overrides]]
 # `bq.play` entra aqui porque `heard_ms`, `remaining_ms` e `dispatch_next_at_mono` SÃO a
 # aritmética de tempo que o RNF-24 protege — elas só mudaram de arquivo.
-module = ["bq.core.clock", "bq.play", "bq.queue", "bq.votes", "bq.conductor"]
+module = [
+    "bq.core.clock",
+    "bq.domain.play",
+    "bq.domain.queue",
+    "bq.votes",
+    "bq.conductor",
+]
 strict = true
 
 [tool.pytest.ini_options]

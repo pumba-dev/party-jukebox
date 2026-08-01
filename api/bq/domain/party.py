@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .core import db
+from ..core import db
 
 _INT_KEYS = (
     "skip_votes_needed",

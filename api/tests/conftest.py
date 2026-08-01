@@ -22,9 +22,10 @@ os.environ["LAN_IP"] = "192.168.0.10"  # não depende de adaptador de rede no te
 # o log do teste não vai para api\party.log, senão o histórico da festa nasce sujo
 os.environ["LOG_PATH"] = str(Path(tempfile.gettempdir()) / "bq-test.log")
 
-from bq import guests, runtime, tracks  # noqa: E402
+from bq import runtime  # noqa: E402
 from bq.core import db  # noqa: E402
-from bq.party import S, party  # noqa: E402
+from bq.domain import guests, tracks  # noqa: E402
+from bq.domain.party import S, party  # noqa: E402
 from bq.spotify.client import TrackData  # noqa: E402
 
 

@@ -6,9 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from .. import queue, runtime, tracks
+from .. import runtime
 from ..core import clock
 from ..core.errors import ApiError
+from ..domain import queue, tracks
 from ..models import SearchResponse, SearchResult
 from ..spotify import search as spotify_search
 from ..spotify.client import TrackData

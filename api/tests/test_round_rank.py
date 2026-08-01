@@ -7,8 +7,8 @@ percebe até a festa.
 
 from __future__ import annotations
 
-from bq import guests, queue
 from bq.core import db
+from bq.domain import guests, queue
 
 from .conftest import make_track
 

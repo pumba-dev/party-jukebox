@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from .core import clock
+from ..core import clock
 from .party import S, party
 from .play import Play
 

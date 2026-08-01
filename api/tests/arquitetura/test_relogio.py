@@ -13,9 +13,10 @@ import importlib
 
 import pytest
 
-from bq import conductor, guards, play, tracks
+from bq import conductor
 from bq.core import clock
-from bq.play import Play
+from bq.domain import guards, play, tracks
+from bq.domain.play import Play
 
 from ..conftest import FakeClock, make_track
 from .varredura import expostos, modulos, nos

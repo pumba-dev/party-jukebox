@@ -22,7 +22,7 @@ from .conductor import Conductor
 from .core import clock, db, errors, log, net
 from .core.config import settings
 from .core.errors import ApiError
-from .party import S, party
+from .domain.party import S, party
 from .routes import guest, host, search, state
 from .spotify.auth import Auth, AuthError
 from .spotify.client import SpotifyClient, SpotifyError

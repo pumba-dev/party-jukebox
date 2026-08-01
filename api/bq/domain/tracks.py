@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .core import db
-from .spotify.client import SpotifyClient, TrackData
+from ..core import db
+from ..spotify.client import SpotifyClient, TrackData
 
 
 @dataclass(frozen=True, slots=True)

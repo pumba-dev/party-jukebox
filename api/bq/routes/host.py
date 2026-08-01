@@ -14,10 +14,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from .. import guards, queue, runtime, tracks, votes, ws
+from .. import runtime, votes, ws
 from ..core import clock, db
 from ..core.config import settings
 from ..core.errors import ApiError
+from ..domain import guards, queue, tracks
 from ..models import (
     ForcePlayIn,
     ForcePlayOut,
@@ -27,7 +28,7 @@ from ..models import (
     Voter,
     VotersOut,
 )
-from ..party import S, party
+from ..domain.party import S, party
 from ..spotify.client import SpotifyError
 
 router = APIRouter(prefix="/api/host", tags=["host"])
