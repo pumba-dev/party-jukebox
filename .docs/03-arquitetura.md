@@ -139,13 +139,15 @@ birthday-queue/
 │   ├── package.json  vite.config.ts  tsconfig.json
 │   └── src/
 │       ├── main.ts  router.ts  api.ts  ws.ts
+│       ├── regras.ts          os 8 limiares do /host: rótulo, ajuda e opções (dado puro)
 │       ├── stores/party.ts
 │       ├── composables/useClock.ts
 │       ├── types/
 │       │   ├── api.d.ts       GERADO do OpenAPI — não editar
 │       │   └── ws.ts          união discriminada, à mão
 │       ├── views/    GuestView.vue  TvView.vue  HostView.vue  HistoricoView.vue
-│       └── components/
+│       └── components/  Abas.vue  CampoSelect.vue  Kpi.vue
+│                        primitivos de apresentação, zero estado de negócio (08 §9)
 ├── start.ps1
 └── .gitignore
 ```

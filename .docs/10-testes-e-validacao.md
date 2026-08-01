@@ -238,11 +238,25 @@ gente. Uma passada de ~30 min, com a JBL ligada e o monitor no lugar.
 | V13 | Botão "Pular" habilita **sozinho** quando a carência vence | faixa começando, olhar o contador terminar e o botão acender. **Votar no primeiro toque, sem 409** |
 | V14 | Botão "Pular" desabilita **sozinho** nos últimos 15 s | não tocar em nada, ver virar "já acabando"; só então tentar votar |
 | V15 | Celular NOVO: QR → apelido → sugerir | não volta para a tela do apelido, "Minhas" mostra a música, e o `/tv` passa a contar a pessoa em "N na festa" |
+| V16 | **Fila com UMA música. Pular no `/host`.** | **o som PARA.** O `/tv` mostra a chamada com QR, e diz "a fila está vazia" — **não** "o anfitrião pausou". Depois sugerir do celular: toca sozinho, sem tocar em "Retomar" |
+| V17 | Regras → "esperar antes de liberar o voto" acima da duração da faixa | a janela de voto acusa em vermelho "ninguém consegue votar", e o botão no celular **não** libera até a música acabar |
+| V18 | Fechar o Spotify desktop estando na aba **Fila** | em ≤ 5 s o `●` acende na aba Saúde sem você trocar de aba |
 
-**V13 a V15 cobrem os dois defeitos que a festa revelou** — a guarda de voto que não se anunciava e
-o socket que abre antes de existir sessão ([06 §6](06-realtime-websocket.md) e §7). V15 tem de ser
-num aparelho **sem cookie prévio**: em aba anônima, ou num celular que nunca abriu a página. Num
-aparelho que já entrou hoje o socket já nasce identificado e o defeito não reproduz.
+**V13 a V15 cobrem os dois defeitos que a primeira festa revelou** — a guarda de voto que não se
+anunciava e o socket que abre antes de existir sessão ([06 §6](06-realtime-websocket.md) e §7). V15
+tem de ser num aparelho **sem cookie prévio**: em aba anônima, ou num celular que nunca abriu a
+página. Num aparelho que já entrou hoje o socket já nasce identificado e o defeito não reproduz.
+
+**V16 é o defeito do ensaio, e a segunda metade dele é o que importa.** Que o som pare está coberto
+por 7 testes de mesa. O que só se verifica de pé é o **discriminante**: se o `/tv` disser "o anfitrião
+pausou", ou se a sugestão seguinte exigir "Retomar", então `_go_silent` escreveu o flag `paused` de
+[RF-28](01-requisitos-funcionais.md) e a correção está errada — o estado tem de continuar `idle`
+([ADR-005](adr/ADR-005-fila-vazia-silencio.md)).
+
+**V17 é a condição de validade da saída do teto de 25 %**
+([ADR-004 §Revisão](adr/ADR-004-skip-5-votos-sem-ttl.md)). O servidor aceita o ajuste e responde 200;
+a janela de voto na tela é a única coisa que avisa. Se este teste falhar porque a linha não existe
+mais, o teto precisa voltar.
 
 **V12 não tem correção em software.** O Spotify não normaliza loudness em device de terceiros, e o
 Connect não expõe ganho por faixa ([RNF, riscos](02-requisitos-nao-funcionais.md#8-riscos-aceitos-explicitamente)).

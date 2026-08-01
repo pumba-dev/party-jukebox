@@ -282,7 +282,32 @@ brigaria com a pausa a cada segundo. Fica em `setting`, portanto sobrevive a res
 
 ### `DELETE /api/host/suggestions/{id}` · [RF-29](01-requisitos-funcionais.md)
 ### `POST /api/host/suggestions/{id}/bump` · [RF-30](01-requisitos-funcionais.md) · M2
-`rank = -1`, mesmo mecanismo da interrupção.
+`rank = MIN(-1, min(rank) - 1)`, mesmo mecanismo da interrupção. O mínimo menos um, e não `-1` fixo:
+com valor fixo, dois bumps empatam e o desempate volta a ser `suggested_at` — o host clica no segundo
+e ele não vai para a frente.
+
+### `POST /api/host/suggestions/{id}/last`
+O par do bump: `rank = MAX(rank) + 1`.
+
+🔴 É **"tocar por último"**, não "descer uma posição", e o rótulo na tela diz isso. A ordem é
+`rank ASC, suggested_at ASC`, e trocar `rank` com o vizinho **não** troca a ordem quando os ranks
+empatam — empate é o caso *normal* do round-rank, porque todo primeiro pedido de todo mundo cai em
+`rank 0` ([04 §4.1](04-modelo-de-dados.md)). "Uma posição" seria uma promessa que a ordenação não
+cumpre; mandar para o fim é total e sem ambiguidade.
+
+Não chama `wake()`, ao contrário do bump: mandar para o fim nunca cria algo a tocar agora.
+
+### `DELETE /api/host/queue`
+```
+← 200 { "removed": 12 }
+```
+Esvazia a fila num gesto. `state = 'removed'` em tudo que estava `queued` — o **mesmo** destino de
+`DELETE /suggestions/{id}`, e não `DELETE` de linha: as invariantes de [04 §5](04-modelo-de-dados.md)
+e o histórico de [RF-42](01-requisitos-funcionais.md) contam com a linha existir.
+
+Não toca a faixa que está **tocando**, que não é da fila; para parar o que já está no ar existe
+`POST /skip`. E devolve a contagem em vez de 204 porque "esvaziei 12" e "não havia nada" são recados
+diferentes para quem apertou o botão. Como na remoção individual, não devolve cota a ninguém.
 
 ### `PATCH /api/host/settings` · [RF-24](01-requisitos-funcionais.md)
 ```
@@ -294,12 +319,16 @@ Campos opcionais; só o enviado muda. Grava em `setting`, recarrega o cache em m
 
 ### `GET /api/host/health` · [RNF-27](02-requisitos-nao-funcionais.md)
 ```
-← 200 { "device": { "name": "PUMBABOOK", "id": "5fbb…", "resolvedAtMs": … },
-        "conductor": { "alive": true, "passive": false, "restarts": 0 },
-        "lastPoll": { "atMs": …, "ok": true },
+← 200 { "device": { "id": "5fbb…", "name": "PUMBABOOK", "resolvedAtMs": … },
+        "deviceError": null,
+        "conductor": { "alive": true, "passive": false, "restarts": 0, "externalStrikes": 0 },
+        "player": { "playId": 41, "state": "playing", "track": "Máquina do Tempo",
+                    "heardMs": 72300, "durationMs": 230400, "blockedReason": null },
+        "lastPoll": { "agoMs": 340, "ok": true },
         "spotify": { "tokenExpiresInS": 2840, "recentErrors": [] },
         "invariants": { "INV-1": 0, "…": 0 },
-        "guestsOnline": 27 }
+        "guestsOnline": 27, "connections": 29, "queueSize": 7,
+        "settings": { … } }
 ```
 
 `conductor.passive` e `conductor.restarts` são os dois campos que existem por causa de
@@ -308,9 +337,37 @@ Campos opcionais; só o enviado muda. Grava em `setting`, recarrega o cache em m
 aparece, os votos contam — e nada toca. Sem esses dois números no `/host` você fica olhando uma tela
 verde numa sala silenciosa.
 
+🔴 **Este payload é um modelo pydantic (`HostHealth`), e não um `dict`.** Era um dict, e o
+consequência era o `/host` lendo doze campos com `as` escritos à mão: um campo renomeado aqui chegava
+`undefined` na tela, em silêncio, na noite da festa. Tipado, ele entra no OpenAPI e quebra o
+`npm run build` — que é o ponto do [ADR-006](adr/ADR-006-contratos-openapi-typescript.md).
+`invariants` é `dict[str, int]` de propósito: são os nomes de INV-1…INV-7 como
+`db.check_invariants()` os devolve, e fixá-los aqui obrigaria a mexer em dois arquivos para
+acrescentar um invariante.
+
 ### `POST /api/host/device/resolve`
 Re-resolve o device por nome ([07 §3](07-integracao-spotify.md)). É o botão de "reabri o Spotify,
 tenta de novo" — a ação de recuperação mais provável da noite.
+
+### `GET /api/host/spotify-check`
+```
+← 200 { "pollOk": true, "pollError": null,
+        "playing": { "uri": "spotify:track:…", "isPlaying": true },
+        "devices": [ { "id": "5fbb…", "name": "PUMBABOOK", "active": true } ],
+        "devicesError": null }
+```
+O diagnóstico de "por que não sai som", numa tacada. Separa os dois casos que se confundem: device na
+lista mas `active: false` é problema de transferência; device fora da lista é o Spotify desktop
+fechado ou logado em outra conta.
+
+`devicesError` é campo **próprio** e não um item da lista. Antes o erro entrava como
+`devices: [{"erro": …}]`, o que dava a "nenhum device" e a "não consegui perguntar" a mesma forma na
+tela — e são exatamente os dois diagnósticos opostos que esta rota existe para distinguir.
+
+🔴 **Botão, nunca poll.** Faz **duas** chamadas vivas ao Spotify (`get_playback` + `list_devices`).
+Num poll de 3 s seriam 40 por minuto contra um cliente com backoff por prioridade
+([07 §5](07-integracao-spotify.md)), e 429 no meio da festa — justamente quando você foi olhar porque
+algo está errado.
 
 ## 6. Rotas estáticas
 
@@ -329,7 +386,9 @@ SPA em history mode: qualquer rota não-`/api` que não casar com arquivo devolv
 Registrado para não ser reinventado por reflexo:
 
 - **Sem paginação.** Busca devolve 20, a fila devolve tudo (dezenas de itens).
-- **Sem `PUT` de reordenação em massa.** Só `bump` ([RF-30](01-requisitos-funcionais.md)).
+- **Sem `PUT` de reordenação em massa, e sem "mover uma posição".** Só `bump` para a frente e `last`
+  para o fim — as duas operações **totais**. Reordenação relativa não é implementável com honestidade
+  sobre `rank ASC, suggested_at ASC` (ver `POST /suggestions/{id}/last`).
 - **Sem versionamento de API.** Um cliente, buildado junto, servido pelo mesmo processo.
 - **Sem CORS.** Mesma origem, sempre — consequência de o FastAPI servir o estático
   ([03 §2](03-arquitetura.md)).

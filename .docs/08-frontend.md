@@ -211,15 +211,75 @@ quebrado.
 
 ## 8. `HostView`
 
-Uma coluna, densa, tudo na primeira tela — você vai usar isso de pé, no meio de uma conversa.
+**Três abas**, e você vai usar isso de pé, no escuro, com uma mão, no meio de uma conversa.
 
-| Bloco | Conteúdo |
+| Aba | Conteúdo |
 |---|---|
-| Tocando | faixa, quem sugeriu, **nomes de quem votou** ([RF-25](01-requisitos-funcionais.md)) |
-| Ações | `Pular` · `Pausar` · `Tocar agora` (busca + 1 toque) |
-| Fila | cada item com `✕` remover e `↑` bump |
-| Limiares | 4 sliders com efeito imediato ([RF-24](01-requisitos-funcionais.md)) |
-| Saúde | device, maestro, último poll, erros, invariantes ([05 §5](05-api-http.md)) |
+| **Fila** | tocando + **nomes de quem votou** ([RF-25](01-requisitos-funcionais.md)) · `Pular` · `Pausar` · `Tocar agora` (busca + 1 toque) · a fila com `↑` tocar em seguida, `↓` tocar por último, `✕` remover, e esvaziar |
+| **Regras** | 8 limiares com efeito imediato ([RF-24](01-requisitos-funcionais.md)), agrupados em Pular / Sugerir / Tocar agora, cada um com `(?)` explicativo, mais a **janela de voto** |
+| **Saúde** | 4 KPIs (device, maestro, poll, invariantes), detalhe com token do Spotify, e o diagnóstico de devices ([05 §5](05-api-http.md)) |
+
+Fora das abas ficam duas coisas, e cada uma por um motivo: o cabeçalho, e o **banner de rendição de
+[RF-19](01-requisitos-funcionais.md)** — quando o maestro está passivo nada mais nesta tela funciona
+como o esperado, e a explicação tem de estar acima do sintoma, inclusive acima da escolha de aba.
+
+**A barra de abas carrega estado, e é isso que a justifica.** Abas escondem informação, e a
+informação que o `/host` esconde é justamente a que te fez abrir o `/host`. A barra mostra a contagem
+da fila e um `●` que acende quando algo está mal na Saúde (`warn` degradou, `hot` a festa parou) **ou
+quando há erro pendente numa aba que não é a atual**. Sem o segundo, um `PATCH` recusado em Regras é
+invisível para quem está na Fila.
+
+### 8.1 Onde mora o estado, e por quê
+
+`HostView.vue` é dono de **todo** o estado e de **todo** o ciclo de vida; os componentes em
+`src/components/` são apresentação pura. Não é preguiça — é o que esta tabela obriga:
+
+| Recurso (poll de 3 s) | Buscado para | Também lido por |
+|---|---|---|
+| `saude.conductor.passive` | Saúde | **fora das abas** — o banner de RF-19 |
+| `cfg.paused` | Regras | **Fila** — a troca `Pausar`/`Retomar` |
+| `votantes` | Saúde | **Fila** — os nomes de RF-25 |
+
+Todo recurso é lido por mais de um lugar, então componentes por aba viveriam de ~14 props e emits, e
+um emit esquecido falha em silêncio. A regra que sai disso:
+
+> **Estado de WebSocket vem da store, lido onde é renderizado. Estado de HTTP (`cfg`, `saude`,
+> `votantes`) é do host, pertence ao `HostView`, e desce como prop.**
+
+Três armadilhas de ciclo de vida, todas já custaram tempo em alguma tela:
+
+- **`useNow(500)` fica no `HostView`, nunca num filho.** `useClock.ts` cria o `setInterval` **na
+  chamada** e só o limpa em `onUnmounted`: num componente alternado por aba isso rotaciona intervalos
+  a cada clique. E as três taxas são deliberadas — um segundo relógio num filho as dobraria.
+- **Os corpos usam `v-show`, não `v-if`.** Com `v-if`, trocar de aba destrói `q`/`results`: você
+  digita, olha as Regras, volta, e a busca sumiu.
+- **A aba vai na URL (`?aba=`) com `router.replace`, nunca `push`.** Com `push`, cada clique é uma
+  entrada de histórico e o voltar passeia pelas abas em vez de sair da página. E **não** acrescente
+  `:key` ao `<RouterView />` do `App.vue`: sem key, navegação só-de-query reusa a instância; com
+  key, cada clique de aba refaz o `GET /api/host/settings` e reinicia o intervalo.
+
+### 8.2 A janela de voto
+
+No pé do grupo "Pular": *"Nesta música, dá para votar de 0:20 até 3:05"*, calculada sobre a faixa que
+está tocando, em `text-hot` quando os limiares se fecham.
+
+🔴 **Não é enfeite: é a condição de validade da remoção do teto de 25 %**
+([ADR-004 §Revisão](adr/ADR-004-skip-5-votos-sem-ttl.md)). Sem o teto,
+`minHeardMs + minRemainingMs > duração` torna a faixa impossível de pular e o servidor aceita o
+ajuste respondendo 200 — não há erro em lugar nenhum. Esta linha é a única coisa que avisa. **Se ela
+sair da tela, o teto tem de voltar.**
+
+### 8.3 Select e não slider
+
+Os limiares eram `<input type="range">`. Saíram porque o host escolhe uma **política** ("dois minutos
+entre sugestões"), não calibra um valor contínuo — e porque o slider tinha um defeito estrutural:
+`:value` preso à verdade do servidor com `@change` faz o número **não se mover enquanto você
+arrasta**; ele salta depois da resposta. No celular, o `<select>` abre o seletor do sistema, não dá
+para arrastar até um valor absurdo, e a lista de opções **é** a recomendação.
+
+A tabela de opções vive em `src/regras.ts` (dado puro, sem Vue) e fecha com um assert de cobertura:
+acrescentar um limiar no backend faz `npm run build` falhar até ele ganhar controle na tela. Foi o
+que faltou para `minHeardMs` e `minRemainingMs`, aceitos pelo `PATCH` desde M1 sem nenhuma UI.
 
 **"Tocar agora" é o botão mais importante da tela** e precisa ser alcançável em um toque a partir da
 busca. É a saída manual do estado `idle` de [ADR-005](adr/ADR-005-fila-vazia-silencio.md) — a rede que
@@ -241,6 +301,17 @@ O PIN ([RF-31](01-requisitos-funcionais.md)) é uma tela de 4 dígitos, uma vez,
 Sem biblioteca de componentes, sem gerenciador de HTTP, sem cliente de WebSocket. `fetch` e
 `WebSocket` nativos: o `api.ts` tem ~40 linhas e o `ws.ts` ~50, e ambos são inteiramente nossos —
 numa app de 3 telas, uma dependência de UI custaria mais tempo de configuração do que economiza de CSS.
+
+🔴 **Esta seção é sobre dependências de terceiros, não sobre componentes próprios**, e a distinção já
+foi lida errado uma vez. O custo citado acima é *tempo de configuração*, e para um `.vue` neste
+projeto ele é zero: `src/components/` já está na árvore normativa de
+[03 §3](03-arquitetura.md), o `tsconfig.json` já cobre `src/**/*.vue` e o alias `@` já resolve. A
+[§8](#8-hostview) deste mesmo documento **manda** usar componente para o estado `idle` do `/tv`.
+
+A regra para componentes próprios é **repetição, não tamanho**: extrai em N ≥ 3 instâncias, deixa
+inline em N = 1. Os três de hoje — `Abas`, `CampoSelect`, `Kpi` — existem porque cada um substituiu de
+3 a 8 blocos de marcação quase idêntica, que é o código de maior densidade de defeito de uma tela. Um
+componente por *seção* seria o erro oposto: ver [8.1](#81-onde-mora-o-estado-e-por-quê).
 
 ## 10. Desenvolvimento vs produção
 
