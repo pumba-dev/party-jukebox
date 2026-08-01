@@ -4,6 +4,8 @@
 // automaticamente. Não há heartbeat de aplicação aqui de propósito — seria código nosso para
 // reimplementar o que a camada abaixo já faz (06 §7).
 
+import { watch } from 'vue'
+
 import { api } from './api'
 import { useParty } from './stores/party'
 import type { ServerMsg } from './types/ws'
@@ -14,6 +16,11 @@ let sock: WebSocket | null = null
 let tentativa = 0
 let timer: number | undefined
 let vivo = false
+/** Se o socket ATUAL sabe quem é. Otimista: só a negativa explícita do `hello` conta, senão um
+ * bundle de dev contra uma API velha leria `undefined` e reabriria em laço. */
+let identificado = true
+let reconciliando = false
+let pararWatch: (() => void) | undefined
 
 function url(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -30,14 +37,17 @@ function agendar(): void {
 
 function abrir(): void {
   const store = useParty()
-  sock = new WebSocket(url())
+  const s = new WebSocket(url())
+  sock = s
+  identificado = true
 
-  sock.onopen = () => {
+  s.onopen = () => {
     tentativa = 0
     store.connected = true
   }
 
-  sock.onmessage = (ev: MessageEvent<string>) => {
+  s.onmessage = (ev: MessageEvent<string>) => {
+    if (s !== sock) return // socket velho falando depois de um reabrir(): não é verdade de ninguém
     let msg: ServerMsg
     try {
       msg = JSON.parse(ev.data) as ServerMsg
@@ -46,9 +56,20 @@ function abrir(): void {
     }
     switch (msg.type) {
       case 'hello':
+        if (msg.identified === false) identificado = false
         store.hello(msg.bootId, msg.joinUrl, msg.wifiQr, msg.wifiSsid)
         return
       case 'state':
+        // 🔴 Socket anônimo + esta aba tem identidade: o snapshot dele é impessoal, e `apply`
+        // SUBSTITUI por contrato — aplicá-lo zeraria `me`, `queue[].isYours` e `skip.youVoted`
+        // de uma vez, e o convidado voltaria para a tela de escrever o apelido no meio da festa.
+        //
+        // Descarta INTEIRO, não em parte: verdade misturada (a seção "Minhas" vazia com a fila
+        // certa) é pior que verdade velha. E pergunta ao HTTP, que por construção leva o cookie.
+        if (!identificado && store.me) {
+          void reconciliar()
+          return
+        }
         store.apply(msg)
         return
       case 'notice':
@@ -57,11 +78,53 @@ function abrir(): void {
     }
   }
 
-  sock.onclose = () => {
+  s.onclose = () => {
+    if (s !== sock) return // fechamos nós, em reabrir(): não é queda, não agenda backoff
     store.connected = false
     agendar()
   }
-  sock.onerror = () => sock?.close()
+  s.onerror = () => s.close()
+}
+
+/** Re-handshake deliberado: é o ÚNICO jeito de um socket adquirir o cookie, porque em WebSocket
+ * ele só viaja no handshake.
+ *
+ * 🔴 Silencia o socket velho ANTES de fechar. O `onclose` dele chama `agendar()`, e sem isso o
+ * backoff somaria uma reabertura à nossa — a aba ficaria com dois sockets recebendo os mesmos
+ * broadcasts, o que não produz sintoma nenhum além de uma contagem estranha em `guestsOnline`. */
+export function reabrir(): void {
+  if (!vivo) return
+  const velho = sock
+  sock = null
+  if (velho) {
+    velho.onopen = velho.onclose = velho.onerror = velho.onmessage = null
+    velho.close()
+  }
+  window.clearTimeout(timer)
+  timer = undefined
+  tentativa = 0
+  abrir()
+}
+
+/** Quem decide entre o socket e a store é o HTTP. Uma por vez: o flag é o debounce.
+ *
+ * Termina sempre, e a prova é curta: só reabrimos quando o HTTP afirma que há identidade, e o
+ * HTTP e o handshake do WS mandam o MESMO cookie (mesma origem, `path=/`). Se ele morreu, o HTTP
+ * vem sem `me`, o `apply` zera a identidade, a guarda do `onmessage` deixa de valer e o ciclo
+ * não tem como recomeçar. */
+async function reconciliar(): Promise<void> {
+  if (reconciliando) return
+  reconciliando = true
+  try {
+    const store = useParty()
+    const fresco = await api.state()
+    store.apply(fresco)
+    if (fresco.me) reabrir()
+  } catch {
+    useParty().connected = false
+  } finally {
+    reconciliando = false
+  }
 }
 
 export function start(): void {
@@ -72,10 +135,26 @@ export function start(): void {
     .catch(() => {})
   abrir()
   document.addEventListener('visibilitychange', revalidar)
+  // Esta aba acabou de ganhar identidade — entrou com o apelido, ou descobriu pelo `revalidar`
+  // depois de voltar do bolso. Se o socket atual é anônimo (e ele é, sempre que abriu antes de
+  // existir sessão) ele nunca receberá `me`, `isYours` nem `youVoted`, e a pessoa não conta em
+  // `guestsOnline`.
+  //
+  // Como `watch` e não como chamada dentro do `entrar()`: a regra verdadeira não é "depois do
+  // POST /api/session", é "ganhou identidade e o socket é anônimo" — e assim ela vale para o
+  // caminho do `revalidar` também, sem depender de ninguém lembrar de chamar nada.
+  pararWatch = watch(
+    () => useParty().me?.guestId,
+    (agora, antes) => {
+      if (agora && !antes && !identificado) reabrir()
+    },
+  )
 }
 
 export function stop(): void {
   vivo = false
+  pararWatch?.()
+  pararWatch = undefined
   window.clearTimeout(timer)
   document.removeEventListener('visibilitychange', revalidar)
   sock?.close()
