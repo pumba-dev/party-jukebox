@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import log
 
@@ -77,7 +77,8 @@ def q(sql: str, params: tuple[Any, ...] | dict[str, Any] = ()) -> list[sqlite3.R
 
 
 def one(sql: str, params: tuple[Any, ...] | dict[str, Any] = ()) -> sqlite3.Row | None:
-    return conn().execute(sql, params).fetchone()
+    # `fetchone()` é `Any` nos stubs; o `cast` é o que faz o tipo de retorno valer para quem chama
+    return cast("sqlite3.Row | None", conn().execute(sql, params).fetchone())
 
 
 def scalar(sql: str, params: tuple[Any, ...] | dict[str, Any] = ()) -> Any:

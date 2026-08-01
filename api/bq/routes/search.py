@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 
 from .. import clock, queue, runtime, tracks
@@ -22,7 +24,10 @@ def _result(t: TrackData, now: int) -> SearchResult:
     e só então levar um erro. Com o campo, o resultado aparece esmaecido e explicado, e ela
     escolhe outra sem frustração.
     """
-    base = {
+    # `dict[str, Any]` explícito: sem a anotação o mypy infere a UNIÃO dos tipos dos valores
+    # (`int | str | None`) e o `**base` abaixo vira 17 erros de arg-type. A validação real destes
+    # campos é do pydantic, no construtor.
+    base: dict[str, Any] = {
         "track_id": t.track_id,
         "name": t.name,
         "artists": t.artists,

@@ -57,7 +57,9 @@ def _basic(client_id: str, client_secret: str) -> str:
 
 
 def _tokens_from(payload: dict[str, object], previous_refresh: str) -> Tokens:
-    expires_in = int(payload.get("expires_in", 3600) or 3600)
+    bruto = payload.get("expires_in") or 3600
+    # o JSON é `dict[str, object]`: sem o isinstance, `int(...)` não tem overload que case
+    expires_in = int(bruto) if isinstance(bruto, (int, float, str)) else 3600
     # 🔴 O Spotify PODE devolver um refresh_token novo na renovação, e é preciso persistir
     # esse novo. Ignorando, funciona por horas e falha depois — provavelmente às 23h, com
     # `400 invalid_grant` e sem relação aparente com o que você estava fazendo (07 §2).
