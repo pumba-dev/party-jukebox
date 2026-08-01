@@ -1,12 +1,17 @@
 """As guardas de voto, como funções puras sobre o play atual.
 
-Módulo folha de propósito. Duas coisas precisam da MESMA avaliação:
+Módulo folha de propósito. TRÊS coisas precisam da MESMA avaliação:
 
 * `votes.cast()`, para recusar com o motivo certo (05 §4);
-* `snapshot`, para o botão do celular **explicar-se antes de ser tocado** (06 §3).
+* `snapshot`, para o botão do celular **explicar-se antes de ser tocado** (06 §3);
+* `conductor._notify_guard_edge()`, para avisar as telas quando o veredito muda **sozinho**.
 
 Se cada um tivesse a sua cópia, elas divergiriam — e o sintoma seria o botão dizendo "pode
 votar" e o servidor respondendo 409, o que para o convidado é o app estar quebrado.
+
+🔴 O terceiro consumidor existe porque as funções daqui mudam de valor com a passagem do tempo,
+e passagem do tempo não é evento: sem alguém amostrando, o motivo certo só chegaria à tela por
+acidente. Ver o docstring de `_notify_guard_edge`.
 """
 
 from __future__ import annotations

@@ -21,8 +21,9 @@ from __future__ import annotations
 import asyncio
 import enum
 from dataclasses import dataclass, field
+from typing import Final, Literal
 
-from . import clock, db, log, queue, tracks, ws
+from . import clock, db, guards, log, queue, tracks, ws
 from .party import S, party
 from .queue import QueuedItem
 from .spotify.client import Poll, Playback, SpotifyClient, SpotifyError
@@ -65,6 +66,12 @@ class PlayState(enum.Enum):
     PAUSED = "paused"
 
 
+# Sentinela de `Play.last_blocked`: o laço ainda não olhou esta faixa. Não é `None`, porque
+# `None` já significa "não bloqueada" — e a diferença entre as duas é o que impede o primeiro
+# tick de cada faixa de duplicar o broadcast que a abertura do play já emitiu.
+NAO_AVALIADO: Final = "?"
+
+
 @dataclass
 class Play:
     """Um play em curso. Vive SÓ em memória.
@@ -89,6 +96,10 @@ class Play:
     anchor_wall: int = field(default_factory=lambda: clock.wall_ms())
     start_pos_ms: int = 0
     attempts: int = 1
+    # O último veredito de `guards.blocked()` que o laço viu, só para detectar a BORDA. Vive
+    # aqui e não no maestro porque morre com a faixa: não há valor de outra música para vazar,
+    # nem bookkeeping de reset em `_end_play`.
+    last_blocked: guards.BlockedReason | None | Literal["?"] = NAO_AVALIADO
 
     def heard_ms(self) -> int:
         if self.state is PlayState.PAUSED:
@@ -218,6 +229,10 @@ class Conductor:
             # decide se o despacho sai adiantado ou atrasado.
             now = clock.mono_ms()
 
+        # 🔴 ANTES da guarda abaixo, de propósito: com a festa pausada `heard_ms()` congela, mas
+        # a proteção de RF-26 e o cooldown de RF-23 continuam vencendo em relógio de parede.
+        await self._notify_guard_edge()
+
         if self._passive or S.paused or now < self._retry_at_mono:
             return
 
@@ -234,6 +249,35 @@ class Conductor:
             if nxt is not None:
                 await self._dispatch(nxt)  # RF-16, antecipado
             # else: fila vazia → silêncio. RF-17, estado ESPERADO às 22h30, não exceção.
+
+    async def _notify_guard_edge(self) -> None:
+        """A passagem do tempo não é evento neste sistema — e para o botão "Pular" ela é.
+
+        `guards.blocked()` muda de valor SOZINHA em quatro instantes que ninguém anuncia: o
+        mínimo ouvido completa (RF-23), a proteção do force-play vence (RF-26), o cooldown de
+        skip vence (RF-23) e a faixa entra nos últimos 15 s. Nenhum deles é transição de estado
+        do maestro, então nenhum deles tinha broadcast, e o snapshot com o motivo novo só saía
+        por acidente — alguém abrindo uma aba, alguém sugerindo música.
+
+        As DUAS direções importam, e a segunda é a pior. Sem isto o botão fica morto depois de
+        destravar (o convidado vê o contador acabar e nada acontece) e fica VIVO depois de
+        travar (ele toca e leva 409) — e o 409 viola o que `guards.py` promete no topo, que é o
+        botão explicar-se ANTES de ser tocado.
+
+        🔴 Isto NÃO reabre a porta do broadcast periódico que 06 §6 fechou: é borda, no máximo
+        quatro por faixa, contra os ~4 que despacho, confirmação, fim e votos já emitem.
+        """
+        cur = self.current
+        if cur is None:
+            return  # sem faixa não há guarda; `_end_play` já avisou as telas
+        reason = guards.blocked(cur)
+        novo = None if reason is None else reason[0]
+        if novo == cur.last_blocked:
+            return
+        primeira_vez = cur.last_blocked == NAO_AVALIADO
+        cur.last_blocked = novo
+        if not primeira_vez:
+            await ws.notify()
 
     # --- readoção após restart (RF-40) -----------------------------------------------------
 

@@ -4,12 +4,13 @@ que é exatamente quando você não quer descobri-los (.docs/10-testes-e-validac
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
-from bq import db, guards, guests, queue, votes
-from bq.conductor import Conductor, PlayState
+from bq import db, guards, guests, queue, runtime, votes, ws
+from bq.conductor import NAO_AVALIADO, POLL_INTERVAL_MS, Conductor, PlayState
 from bq.errors import ApiError
 from bq.party import S, party
 
@@ -28,6 +29,166 @@ async def tocando(clk: FakeClock, duracao: int = 200_000) -> tuple[Conductor, Fa
     assert cond.current is not None and cond.current.state is PlayState.PLAYING
     votantes = [guests.create(f"P{i}") for i in range(8)]
     return cond, fake, votantes
+
+
+@dataclass
+class Borda:
+    reason: str | None
+    mono: int
+
+
+def espiao_de_broadcast(monkeypatch: pytest.MonkeyPatch, clk: FakeClock) -> list[Borda]:
+    """Grava o `blockedReason` de CADA broadcast — que é literalmente o que o botão do celular
+    recebe. Contar broadcasts diria que houve mensagem; isto diz o que ela afirmava.
+
+    Instale DEPOIS de a faixa estar tocando e confirmada: assim a lista contém só as bordas, sem
+    os broadcasts de despacho e de confirmação.
+    """
+    vistos: list[Borda] = []
+    real = ws.notify
+
+    async def espiao() -> None:
+        cond = runtime.conductor
+        cur = cond.current if cond is not None else None
+        r = None if cur is None else guards.blocked(cur)
+        vistos.append(Borda(None if r is None else r[0], clk.mono))
+        await real()
+
+    monkeypatch.setattr("bq.ws.notify", espiao)
+    return vistos
+
+
+async def test_borda_avisa_quando_a_carencia_expira(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 O defeito relatado na festa: o contador chegava a zero e o botão continuava morto.
+
+    A carência vencer não é transição de estado do maestro, então não havia broadcast — e o
+    convidado ficava preso até alguém abrir uma aba ou sugerir uma música por acaso.
+    """
+    cond, _, _ = await tocando(clk)
+    cur = cond.current
+    assert cur is not None
+    alvo = cur.anchor_mono + guards.min_heard_ms(cur) - cur.start_pos_ms
+
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+    await simulate(cond, clk, S.min_heard_ms + 2_000)
+
+    liberou = [b for b in vistos if b.reason is None]
+    assert len(liberou) == 1, f"esperava UM aviso de liberação, vieram {[b.reason for b in vistos]}"
+    atraso = liberou[0].mono - alvo
+    assert 0 <= atraso <= POLL_INTERVAL_MS, f"avisou {atraso} ms fora do instante real"
+
+
+async def test_borda_avisa_ANTES_de_recusar_por_almost_over(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O mesmo defeito na direção PERMISSIVA, que é a pior das duas.
+
+    Nos últimos 15 s o servidor passa a recusar o voto, mas ninguém avisava o celular: o botão
+    seguia dizendo "Pular", a pessoa tocava e levava 409 — exatamente o que o topo de `guards.py`
+    existe para impedir.
+    """
+    cond, _, votantes = await tocando(clk, duracao=40_000)  # min_heard 10 s, almost_over aos 25 s
+    cur = cond.current
+    assert cur is not None
+
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+    await simulate(cond, clk, 24_000)
+
+    assert [b.reason for b in vistos] == [None, "ALMOST_OVER"]
+    with pytest.raises(ApiError) as e:
+        await votes.cast(votantes[0], cur.play_id)
+    assert e.value.code == vistos[-1].reason, "a tela já dizia o motivo antes do toque"
+
+
+async def test_borda_nao_repete_broadcast_a_cada_tick(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 06 §6 continua valendo: não há broadcast periódico. Isto é BORDA.
+
+    Sem este teste, "simplificar" o detector para notificar sempre que houver bloqueio passaria
+    despercebido — e a festa inteira viraria um broadcast por segundo para cada tela.
+    """
+    cond, _, _ = await tocando(clk)  # 200 s: passa o mínimo ouvido, longe do fim
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+
+    await simulate(cond, clk, 150_000)  # 1 500 passos do laço
+
+    assert [b.reason for b in vistos] == [None], f"{len(vistos)} broadcasts em 1 500 ticks"
+
+
+async def test_a_sentinela_impede_borda_no_primeiro_olhar(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Faixa recém-aberta já é `TOO_EARLY`, e quem a abriu já avisou as telas. Sem a sentinela,
+    o primeiro tick veria "mudou de None para TOO_EARLY" e duplicaria aquele broadcast."""
+    cond, _, _ = await tocando(clk)
+    cur = cond.current
+    assert cur is not None
+    cur.last_blocked = NAO_AVALIADO  # como uma faixa acabada de abrir
+
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+    await cond._notify_guard_edge()  # noqa: SLF001 — é o que está sob teste
+    assert vistos == [], "o primeiro olhar só memoriza"
+    assert cur.last_blocked == "TOO_EARLY"
+
+    clk.advance(S.min_heard_ms + 1_000)
+    await cond._notify_guard_edge()  # noqa: SLF001
+    assert [b.reason for b in vistos] == [None], "a partir do segundo olhar, avisa"
+
+
+async def test_borda_de_skip_cooldown_libera_sozinha(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RF-23 no canal de SAÍDA: os 45 s de cooldown vencem sem nenhum evento do maestro."""
+    cond, _, _ = await tocando(clk)
+    clk.advance(S.min_heard_ms + 1_000)
+    await cond.skip("skip_vote")
+    await simulate(cond, clk, 2_500)  # confirma a faixa nova
+
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+    await simulate(cond, clk, S.skip_cooldown_ms + 2_000)
+
+    assert [b.reason for b in vistos] == ["SKIP_COOLDOWN", None]
+
+
+async def test_borda_de_protecao_expirando(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RF-26: os 90 s de proteção do "tocar agora" vencem em relógio de PAREDE, e ninguém
+    agenda nada para esse instante."""
+    cond, _, _ = await tocando(clk)
+    cur = cond.current
+    assert cur is not None
+    clk.advance(S.min_heard_ms + 1_000)
+    cur.protected_until = clk.wall + 10_000
+
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+    await simulate(cond, clk, 12_000)
+
+    assert [b.reason for b in vistos] == ["PROTECTED", None]
+
+
+async def test_borda_dispara_com_a_festa_pausada(
+    clk: FakeClock, base: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Trava a decisão de chamar o detector ANTES da guarda `S.paused`.
+
+    Com a festa pausada `heard_ms()` congela, mas proteção e cooldown continuam vencendo em
+    relógio de parede. Mover a chamada para depois da guarda reintroduziria, condicionalmente, a
+    mesma classe de bug — e nada acusaria.
+    """
+    cond, _, _ = await tocando(clk)
+    clk.advance(S.min_heard_ms + 1_000)
+    party.skip_cooldown_until = clk.mono + S.skip_cooldown_ms
+    await cond.pause()
+    assert S.paused
+
+    vistos = espiao_de_broadcast(monkeypatch, clk)
+    await simulate(cond, clk, S.skip_cooldown_ms + 2_000)
+
+    assert None in [b.reason for b in vistos], f"a festa pausada engoliu a borda: {vistos}"
 
 
 async def test_cinco_votos_pulam_a_faixa(clk: FakeClock, base: None) -> None:
