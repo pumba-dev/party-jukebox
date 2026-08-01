@@ -51,6 +51,19 @@ class Hub:
                 "joinUrl": join_url(settings.bind_port),
                 "wifiQr": wifi_payload(),
                 "wifiSsid": settings.wifi_ssid or None,
+                # 🔴 Se ESTA conexão sabe quem é.
+                #
+                # O cookie do WebSocket só viaja no handshake, e o socket abre no boot do app —
+                # antes de existir sessão, num celular que acabou de escanear o QR. Aquela
+                # conexão fica `token = None` PARA SEMPRE, e todo broadcast dela sai impessoal:
+                # `me` null, `isYours` falso, `youVoted` falso, e a pessoa nem conta em
+                # `guestsOnline`. Não há como reler o cookie; o cliente tem de reabrir o socket,
+                # e este campo é como ele descobre que precisa.
+                #
+                # `by_token` e não `bool(conn.token)`: um token que não casa nenhuma linha
+                # produz uma conexão anônima de fato, e mentir aqui deixaria o cliente reabrindo
+                # contra um cookie morto. É uma query indexada por handshake, e handshake é raro.
+                "identified": guests.by_token(conn.token) is not None,
             },
         )
         await self.broadcast_state()  # o novo vê o estado, e os outros veem o contador subir

@@ -44,9 +44,78 @@ def test_ws_sem_cookie_nao_tem_me_e_nao_conta_como_pessoa(client: TestClient) ->
         assert estado["guestsOnline"] == 0, "o /tv não é uma pessoa na festa"
 
 
+def test_hello_diz_se_a_conexao_esta_identificada(client: TestClient) -> None:
+    """O cookie do WebSocket só viaja no handshake, então "esta conexão sabe quem é" é um fato
+    fixo dela — e quem sabe é o servidor. Sem isto o cliente teria de adivinhar pelo `me: null`
+    do snapshot, que é ambíguo (conexão anônima ou cookie expirado?)."""
+    client.cookies.clear()
+    with client.websocket_connect("/ws") as sock:
+        assert sock.receive_json()["identified"] is False
+
+    entrar(client, "Ana")
+    with client.websocket_connect("/ws") as sock:
+        assert sock.receive_json()["identified"] is True
+
+
+def test_hello_com_cookie_de_convidado_apagado_nao_diz_identificado(client: TestClient) -> None:
+    """Trava a decisão `by_token` vs `bool(token)`: um token que não casa nenhuma linha é uma
+    conexão anônima de fato, e mentir aqui deixaria o cliente reabrindo contra um cookie morto."""
+    client.cookies.clear()
+    client.cookies.set("bq_guest", "0" * 32)
+    with client.websocket_connect("/ws") as sock:
+        assert sock.receive_json()["identified"] is False
+
+
+def test_socket_aberto_antes_da_sessao_recebe_broadcast_impessoal(client: TestClient) -> None:
+    """🔴 Caracterização do Defeito B — o servidor aqui está CORRETO.
+
+    O socket abre no boot do app, antes de existir sessão. Num celular que acabou de escanear o
+    QR aquela conexão não tem cookie, e como em WebSocket o cookie só viaja no handshake, ela
+    fica anônima para sempre. Todo broadcast dela sai impessoal, e como o `apply` do cliente
+    SUBSTITUI por contrato, quatro campos morrem de uma vez — inclusive `guestsOnline`, que é o
+    "0 na festa" que o /tv anunciava com a festa cheia.
+
+    O cliente não pode falar pelo socket (ADR-009), então a correção é ele REABRIR: o `hello`
+    passou a dizer `identified` para ele saber que precisa. Este teste existe para o alçapão
+    ficar visível na suíte em vez de invisível em 111 testes.
+    """
+    client.cookies.clear()
+    with client.websocket_connect("/ws") as anonimo:
+        anonimo.receive_json()  # hello
+        anonimo.receive_json()  # state inicial
+
+        client.post("/api/session", json={"nickname": "Ana"})
+        client.post("/api/suggestions", json={"trackId": seed_track(9)})
+
+        for _ in range(6):
+            msg = anonimo.receive_json()
+            if msg["type"] == "state" and msg["queue"]:
+                break
+        assert msg["me"] is None, "a sessão existe, mas não NESTA conexão"
+        assert msg["queue"][0]["isYours"] is False
+        assert msg["skip"]["youVoted"] is False
+        assert msg["guestsOnline"] == 0, "o quarto campo, e o mais público: o /tv diria '0'"
+
+
+def test_reabrir_o_socket_recupera_os_quatro_campos(client: TestClient) -> None:
+    """A outra metade: com o cookie presente no handshake, os quatro voltam."""
+    client.cookies.clear()
+    client.post("/api/session", json={"nickname": "Ana"})
+    client.post("/api/suggestions", json={"trackId": seed_track(9)})
+
+    with client.websocket_connect("/ws") as sock:
+        assert sock.receive_json()["identified"] is True
+        estado = sock.receive_json()
+        assert estado["me"]["nickname"] == "Ana"
+        assert estado["queue"][0]["isYours"] is True
+        assert estado["skip"]["youVoted"] is False
+        assert estado["guestsOnline"] == 1
+
+
 def test_ws_personaliza_por_conexao(client: TestClient) -> None:
-    """Três campos dependem de quem está olhando; o resto é idêntico. O snapshot é construído
-    UMA vez e sobreposto (06 §4)."""
+    """QUATRO campos dependem de quem está olhando; o resto é idêntico. O snapshot é construído
+    UMA vez e sobreposto (06 §4) — `me`, `queue[].isYours` e `skip.youVoted` pelo overlay, e
+    `guestsOnline` por dedução dos tokens das conexões abertas."""
     entrar(client, "Ana")
     tid = seed_track(1)
     client.post("/api/suggestions", json={"trackId": tid})

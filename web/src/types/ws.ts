@@ -98,6 +98,13 @@ export type ServerMsg =
       joinUrl: string
       wifiQr: string | null
       wifiSsid: string | null
+      /** Se ESTA conexão sabe quem é. Fato da conexão, não do estado — o cookie do WebSocket só
+       * viaja no handshake, então um socket aberto antes de haver sessão é anônimo para sempre e
+       * recebe todo broadcast despersonalizado. `ws.ts` usa isto para reabrir.
+       *
+       * 🔴 Ausente em servidor antigo: trate só a negativa EXPLÍCITA (`=== false`) como anônimo,
+       * senão um bundle de dev contra uma API velha lê `undefined` e reabre em laço. */
+      identified?: boolean
     }
   | ({ type: 'state' } & StateSnapshot)
   | { type: 'notice'; level: 'info' | 'warn'; text: string }
